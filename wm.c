@@ -1,11 +1,14 @@
+/**
+ * wm.c
+ */
 #include "wm.h"
 
 int main(int argc, char** argv) {
-  wm_log("Begin execution");
+  wm_log("Begin execution", DEBUG);
 
   Display* display = XOpenDisplay(NULL);
   if (display == NULL) {
-    wm_log("No display!");
+    wm_log("No display!", ERROR);
     return 1;
   }
 
@@ -28,7 +31,7 @@ int main(int argc, char** argv) {
         handle_map_request(display, &e);
         break;
       default:
-        wm_log("Not yet handled");
+        wm_log("XEvent not yet handled", WARN);
         break;
     }
   }
@@ -38,7 +41,7 @@ int main(int argc, char** argv) {
 }
 
 int handle_configure_request(Display* display, XEvent* event) {
-  wm_log("ConfigureRequest");
+  wm_log("Start ConfigureRequest", DEBUG);
   XConfigureRequestEvent e = *((XConfigureRequestEvent*) event);
 
   XWindowChanges changes;
@@ -48,23 +51,18 @@ int handle_configure_request(Display* display, XEvent* event) {
   changes.height = e.height;
 
   XConfigureWindow(display, e.window, e.value_mask, &changes);
-  wm_log("End ConfigureRequest");
+  wm_log("End ConfigureRequest", DEBUG);
 }
 
 int handle_map_request(Display* display, XEvent* event) {
-  wm_log("MapRequest");
+  wm_log("Start MapRequest", DEBUG);
   XMapRequestEvent e = *((XMapRequestEvent*) event);
 
   XMapWindow(display, e.window);
-  wm_log("End MapRequest");
+  wm_log("End MapRequest", DEBUG);
 }
 
 int handle_xerror(Display* display, XErrorEvent* e) {
-  wm_log("Error!");
+  wm_log("Error!", ERROR);
   return 1;
 }
-
-void wm_log(const char* msg) {
-  fprintf(stdout, "[wm]: %s\n", msg);
-}
-

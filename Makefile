@@ -3,18 +3,19 @@ SHELL = /bin/sh
 CC = gcc
 CFLAGS = -O2 --std=c99 -pedantic -g
 LDFLAGS =
-DEPS =
 TARGET = wm
-LIBS = -lX11
 
 .PHONY: all
 all: $(TARGET)
 
-$(TARGET): wm.o $(DEPS)
-	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
+$(TARGET): wm.o log.o
+	$(CC) $(LDFLAGS) $^ -o $@ -lX11
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@ $(LIBS)
+wm.o: wm.c wm.h log.o
+	$(CC) $(CFLAGS) -c $< -o $@
+
+log.o: log.c log.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONY: clean
 clean:
