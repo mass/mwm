@@ -236,15 +236,34 @@ void Manager::onKeyPress(const XKeyEvent& e)
     }
     auto& client = it->second;
 
+
     XWindowAttributes attr;
-    XGetWindowAttributes(_disp, client.root, &attr);
+    XGetWindowAttributes(_disp, client.client, &attr);
+
+    int cx,cy;
+    std::tie(cx, cy) = getCenter(attr.x, attr.y, attr.width, attr.height);
+
+    LOG(INFO) << " x=" << attr.x
+              << " y=" << attr.y
+              << " w=" << attr.width
+              << " h=" << attr.height
+              << " cx=" << cx
+              << " cy=" << cy;
+
+    const auto& monitors = _screens[client.root].monitors;
+    auto it2 = std::find_if(begin(monitors), end(monitors),
+                            [cx,cy] (const auto& m) { return m.contains(cx, cy); });
+    if (it2 == end(monitors)) {
+      LOG(ERROR) << "no monitor contains (" << cx << "," << cy << ")";
+      return;
+    }
+    auto& mon = *it2;
 
     XWindowChanges changes;
-    changes.x = 0;
-    changes.y = 0;
-    changes.width = attr.width;
-    changes.height = attr.height;
-
+    changes.x = mon.x;
+    changes.y = mon.y;
+    changes.width = mon.w;
+    changes.height = mon.h;
     XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
   }
 
@@ -331,4 +350,19 @@ Window Manager::getRoot(Window w)
   XQueryTree(_disp, w, &root, &parent, &children, &num);
 
   return root;
+}
+
+bool Monitor::contains(int ox, int oy) const
+{
+  LOG(INFO) << " name=" << name
+            << " x=" << x
+            << " y=" << y
+            << " w=" << w
+            << " h=" << h
+            << " xw=" << x + w
+            << " yh=" << y + h
+            << " ox=" << ox
+            << " oy=" << oy;
+
+  return (ox >= x && ox <= x + w) && (oy >= y && oy <= y + h);
 }

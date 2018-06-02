@@ -27,6 +27,8 @@ struct Monitor
   std::string name;
   int x, y;
   int w, h;
+
+  bool contains(int ox, int oy) const;
 };
 
 struct ScreenInfo
@@ -115,3 +117,11 @@ static std::string ToString(const XEvent& e) {
 
   return X_EVENT_TYPE_NAMES[e.type];
 }
+
+static inline std::pair<int,int> getCenter(int x, int y, int w, int h)
+{
+  int cx = x + (w/2);
+  int cy = y + (h/2);
+  return std::make_pair(cx,cy);
+}
+
