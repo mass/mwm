@@ -22,6 +22,19 @@ struct Client
   Window root;
 };
 
+struct Monitor
+{
+  std::string name;
+  int x, y;
+  int w, h;
+};
+
+struct ScreenInfo
+{
+  int num;
+  std::vector<Monitor> monitors;
+};
+
 class Manager
 {
   public:
@@ -52,7 +65,7 @@ class Manager
     Display* _disp;
     int _numScreens;
     std::map<Window /*client*/, Client> _clients;
-    std::map<Window /*root*/, int> _roots;
+    std::map<Window /*root*/, ScreenInfo> _screens;
     Drag _drag;
 };
 

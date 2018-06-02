@@ -3,6 +3,7 @@
 #include <mass/Log.hpp>
 
 #include <X11/Xutil.h>
+#include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
 
@@ -48,7 +49,8 @@ bool Manager::init()
 
     auto root = RootWindow(_disp, i);
     LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
-    _roots[root] = i;
+    ScreenInfo s;
+    s.num = i;
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
@@ -64,6 +66,30 @@ bool Manager::init()
     XGrabButton(_disp, 3, Mod1Mask, root, false,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
+
+    // Identify monitors on this X screen
+    XRRScreenResources* res = XRRGetScreenResourcesCurrent(_disp, root);
+    for (int j = 0; j < res->noutput; ++j) {
+      XRROutputInfo* monitor = XRRGetOutputInfo(_disp, res, res->outputs[j]);
+      if (monitor->connection) continue; // No monitor plugged in
+      XRRCrtcInfo* crtc = XRRGetCrtcInfo(_disp, res, monitor->crtc);
+      LOG(INFO) << "found monitor for"
+                << " screen=" << i
+                << " name=" << monitor->name
+                << " width=" << crtc->width
+                << " height=" << crtc->height
+                << " xPos=" << crtc->x
+                << " yPos=" << crtc->y;
+      Monitor m;
+      m.x = crtc->x;
+      m.y = crtc->y;
+      m.w = crtc->width;
+      m.h = crtc->height;
+      m.name = monitor->name;
+      s.monitors.push_back(m);
+    }
+
+    _screens.insert({root, s});
   }
 
   return true;
@@ -185,12 +211,12 @@ void Manager::onKeyPress(const XKeyEvent& e)
   {
     LOG(INFO) << "got WIN-T window=" << e.window;
 
-    auto it = _roots.find(e.window);
-    if (it == end(_roots)) {
+    auto it = _screens.find(e.window);
+    if (it == end(_screens)) {
       LOG(ERROR) << "can't find root=" << e.window;
       return;
     }
-    int screen = it->second;
+    int screen = it->second.num;
     LOG(INFO) << "root=" << e.window << " screen=" << screen;
 
     std::ostringstream cmd;
@@ -272,8 +298,6 @@ void Manager::onBtnPress(const XButtonEvent& e)
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// TODO
 void Manager::addClient(Window w)
 {
   auto it = _clients.find(w);
