@@ -26,7 +26,8 @@ class Manager
 {
   public:
 
-    Manager();
+    Manager(const std::string& display,
+            const std::vector<int>& screens);
     ~Manager();
 
     bool init();
@@ -45,10 +46,13 @@ class Manager
     Window getRoot(Window w);
 
   private:
+    const std::string& _argDisp;
+    const std::vector<int>& _argScreens;
 
     Display* _disp;
     int _numScreens;
     std::map<Window /*client*/, Client> _clients;
+    std::map<Window /*root*/, int> _roots;
     Drag _drag;
 };
 

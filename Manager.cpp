@@ -17,7 +17,10 @@ static int XError(Display* display, XErrorEvent* e) {
   return 0;
 }
 
-Manager::Manager()
+Manager::Manager(const std::string& display,
+                 const std::vector<int>& screens)
+  : _argDisp(display)
+  , _argScreens(screens)
 {
   _drag.w = 0;
 }
@@ -31,9 +34,9 @@ bool Manager::init()
 {
   XSetErrorHandler(&XError);
 
-  _disp = XOpenDisplay(":100");
+  _disp = XOpenDisplay(_argDisp.c_str());
   if (_disp == nullptr) {
-    LOG(ERROR) << "failed to open X display=:100";
+    LOG(ERROR) << "failed to open X display=" << _argDisp;
     return false;
   }
 
@@ -41,11 +44,20 @@ bool Manager::init()
   LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << _numScreens;
 
   for (int i = 0; i < _numScreens; ++i) {
+    if (std::count(begin(_argScreens), end(_argScreens), i) == 0) continue;
+
     auto root = RootWindow(_disp, i);
     LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
+    _roots[root] = i;
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabButton(_disp, 1, 0, root, false,
+                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
     XGrabButton(_disp, 1, Mod1Mask, root, false,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
@@ -123,12 +135,6 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
   changes.border_width = e.border_width;
 
   XConfigureWindow(_disp, e.window, e.value_mask, &changes);
-
-  auto it = _clients.find(e.window);
-  if (it != end(_clients)) {
-    LOG(INFO) << "configuring client=" << it->second.client << " for window=" << e.window;
-    XConfigureWindow(_disp, it->second.client, e.value_mask, &changes);
-  }
 }
 
 void Manager::onNot_Unmap(const XUnmapEvent& e)
@@ -173,28 +179,97 @@ void Manager::onKeyPress(const XKeyEvent& e)
     LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
     if (e.subwindow != 0) XRaiseWindow(_disp, e.subwindow);
   }
+
+  if ((e.state & Mod1Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_T)))
+  {
+    LOG(INFO) << "got WIN-T window=" << e.window;
+
+    auto it = _roots.find(e.window);
+    if (it == end(_roots)) {
+      LOG(ERROR) << "can't find root=" << e.window;
+      return;
+    }
+    int screen = it->second;
+    LOG(INFO) << "root=" << e.window << " screen=" << screen;
+
+    std::ostringstream cmd;
+    cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen;
+    cmd << " terminator -m &";
+    LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
+    system(cmd.str().c_str());
+  }
+
+  if ((e.state & Mod1Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_M)))
+  {
+    auto it = _clients.find(e.subwindow);
+    if (it == end(_clients)) {
+      LOG(ERROR) << "can't find client=" << e.subwindow;
+      return;
+    }
+    auto& client = it->second;
+
+    XWindowAttributes attr;
+    XGetWindowAttributes(_disp, client.root, &attr);
+
+    XWindowChanges changes;
+    changes.x = 0;
+    changes.y = 0;
+    changes.width = attr.width;
+    changes.height = attr.height;
+
+    XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
+  }
+
+  if ((e.state & Mod1Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_D)))
+  {
+    if (e.subwindow == 0) return;
+
+    LOG(INFO) << "got WIN-D window=" << e.window << " subwindow=" << e.subwindow;
+
+    XEvent event;
+    event.xclient.type = ClientMessage;
+    event.xclient.window = e.subwindow;
+    event.xclient.message_type = XInternAtom(_disp, "WM_PROTOCOLS", true);
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
+    event.xclient.data.l[1] = CurrentTime;
+    XSendEvent(_disp, e.subwindow, false, NoEventMask, &event);
+  }
 }
 
 void Manager::onBtnPress(const XButtonEvent& e)
 {
   if (e.subwindow == 0) return;
 
-  LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow;
+  LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow << " " << e.state;
 
-  _drag.btn = e.button;
-  _drag.xR = e.x_root;
-  _drag.yR = e.y_root;
-  _drag.w = e.subwindow;
+  // Normal click
+  if (e.state == 0) {
+    XRaiseWindow(_disp, e.subwindow);
+    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+    _drag.w = 0;
+  }
 
-  XWindowAttributes attr;
-  XGetWindowAttributes(_disp, e.subwindow, &attr);
-  _drag.x = attr.x;
-  _drag.y = attr.y;
-  _drag.width = attr.width;
-  _drag.height = attr.height;
+  // Alt-click
+  if (e.state & Mod1Mask) {
+    _drag.btn = e.button;
+    _drag.xR = e.x_root;
+    _drag.yR = e.y_root;
+    _drag.w = e.subwindow;
 
-  XRaiseWindow(_disp, e.subwindow);
-  XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+    XWindowAttributes attr;
+    XGetWindowAttributes(_disp, e.subwindow, &attr);
+    _drag.x = attr.x;
+    _drag.y = attr.y;
+    _drag.width = attr.width;
+    _drag.height = attr.height;
+
+    XRaiseWindow(_disp, e.subwindow);
+    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
