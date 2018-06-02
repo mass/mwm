@@ -2,6 +2,10 @@
 
 #include <mass/Log.hpp>
 
+#include <X11/Xutil.h>
+
+#include <algorithm>
+
 // Static error handler for XLib
 static int XError(Display* display, XErrorEvent* e) {
   char buf[1024];
@@ -13,7 +17,10 @@ static int XError(Display* display, XErrorEvent* e) {
   return 0;
 }
 
-Manager::Manager() {}
+Manager::Manager()
+{
+  _drag.w = 0;
+}
 
 Manager::~Manager()
 {
@@ -22,6 +29,8 @@ Manager::~Manager()
 
 bool Manager::init()
 {
+  XSetErrorHandler(&XError);
+
   _disp = XOpenDisplay(":100");
   if (_disp == nullptr) {
     LOG(ERROR) << "failed to open X display=:100";
@@ -29,15 +38,21 @@ bool Manager::init()
   }
 
   _numScreens = ScreenCount(_disp);
-  LOG(INFO) << "_disp=" << DisplayString(_disp) << " screens=" << _numScreens;
-
+  LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << _numScreens;
 
   for (int i = 0; i < _numScreens; ++i) {
-    XSelectInput(_disp, RootWindow(_disp, i), SubstructureRedirectMask | SubstructureNotifyMask);
-  }
+    auto root = RootWindow(_disp, i);
+    LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
 
-  XSetErrorHandler(&XError);
-  //XSync(_disp, 0);
+    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabButton(_disp, 1, Mod1Mask, root, false,
+                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+    XGrabButton(_disp, 3, Mod1Mask, root, false,
+                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+  }
 
   return true;
 }
@@ -56,6 +71,8 @@ void Manager::run()
       case ConfigureNotify:
       case CreateNotify:
       case DestroyNotify:
+      case KeyRelease:
+      case ButtonRelease:
         break;
 
       case MapRequest:
@@ -68,23 +85,21 @@ void Manager::run()
       case UnmapNotify:
         onNot_Unmap(e.xunmap);
         break;
+      case MotionNotify:
+        while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
+        onNot_Motion(e.xbutton);
+        break;
 
-      //TODO
-      case ButtonPress:
-        LOG(INFO) << "BTN PRS";
-        break;
-      case ButtonRelease:
-        LOG(INFO) << "BTN RLSE";
-        break;
       case KeyPress:
-        LOG(INFO) << "KEY PRS";
+        onKeyPress(e.xkey);
         break;
-      case KeyRelease:
-        LOG(INFO) << "KEY RLSE";
+      case ButtonPress:
+        onBtnPress(e.xbutton);
         break;
 
       default:
-        LOG(ERROR) << "XEvent not yet handled type=" << e.type;
+        LOG(ERROR) << "XEvent not yet handled type=" << e.type
+                   << " event=(" << ToString(e) << ")";
         break;
     }
   }
@@ -127,6 +142,65 @@ void Manager::onNot_Unmap(const XUnmapEvent& e)
   }
 }
 
+void Manager::onNot_Motion(const XButtonEvent& e)
+{
+  if (_drag.w == 0) return;
+
+  auto frame = _drag.w;
+  auto it = std::find_if(begin(_frames), end(_frames), [&frame] (const std::pair<Window, Window>& m) { return m.second == frame; });
+  if (it == end(_frames)) {
+    LOG(ERROR) << "frame not found for motion event frame=" << frame;
+    return;
+  }
+  auto child = it->first;
+
+  int xdiff = e.x_root - _drag.xR;
+  int ydiff = e.y_root - _drag.yR;
+
+  if (_drag.btn == 1) {
+    XMoveWindow(_disp, _drag.w, _drag.x + xdiff, _drag.y + ydiff);
+  } else if (_drag.btn == 3) {
+    XResizeWindow(_disp, frame,
+                  std::max(1, _drag.width + xdiff), std::max(1, _drag.height + ydiff));
+    XResizeWindow(_disp, child,
+                  std::max(1, _drag.width + xdiff), std::max(1, _drag.height + ydiff));
+  }
+}
+
+void Manager::onKeyPress(const XKeyEvent& e)
+{
+  //LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
+  //          << " keyCode=" << e.keycode;
+
+  if ((e.state & Mod1Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
+  {
+    LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
+    if (e.subwindow != 0) XRaiseWindow(_disp, e.subwindow);
+  }
+}
+
+void Manager::onBtnPress(const XButtonEvent& e)
+{
+  if (e.subwindow == 0) return;
+
+  LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow;
+
+  _drag.btn = e.button;
+  _drag.xR = e.x_root;
+  _drag.yR = e.y_root;
+  _drag.w = e.subwindow;
+
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.subwindow, &attr);
+  _drag.x = attr.x;
+  _drag.y = attr.y;
+  _drag.width = attr.width;
+  _drag.height = attr.height;
+
+  XRaiseWindow(_disp, e.subwindow);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Wraps a custom frame Window around the Window w.
 void Manager::frame(Window w)
@@ -136,12 +210,13 @@ void Manager::frame(Window w)
 
   const Window frame =
     XCreateSimpleWindow(_disp, getRoot(w), attrs.x, attrs.y, attrs.width, attrs.height,
-                        5, 0xFF0000, 0x0000FF);
-  XSelectInput(_disp, frame, SubstructureRedirectMask | SubstructureNotifyMask);
+                        4, 0xB92323, 0x181818);
+  XSelectInput(_disp, frame, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
   XAddToSaveSet(_disp, w);
   XReparentWindow(_disp, w, frame, 0, 0);
   XMapWindow(_disp, frame);
   _frames[w] = frame;
+
   LOG(INFO) << "framed window=" << w << " frame=" << frame;
 }
 
@@ -151,6 +226,7 @@ void Manager::unframe(Window w)
   XUnmapWindow(_disp, frame);
   XReparentWindow(_disp, w, getRoot(w), 0, 0);
   XRemoveFromSaveSet(_disp, w);
+  XDestroyWindow(_disp, frame);
   _frames.erase(w);
   LOG(INFO) << "unframed window=" << w << " frame=" << frame;
 }
