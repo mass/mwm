@@ -16,6 +16,13 @@ struct Drag
   int btn;
 };
 
+struct Client
+{
+  Window frame;
+  Window client;
+  Window root;
+};
+
 class Manager
 {
   public:
@@ -32,7 +39,7 @@ class Manager
     void onNot_Motion(const XButtonEvent& e);
 
     void frame(Window w);
-    void unframe(Window w);
+    void unframe(Client& c);
     Window getRoot(Window w);
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
@@ -41,8 +48,7 @@ class Manager
 
     Display* _disp;
     int _numScreens;
-    std::map<Window, Window> _frames;
-
+    std::map<Window /*client*/, Client> _clients;
     Drag _drag;
 };
 

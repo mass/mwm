@@ -126,10 +126,10 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
 
   XConfigureWindow(_disp, e.window, e.value_mask, &changes);
 
-  auto it = _frames.find(e.window);
-  if (it != end(_frames)) {
-    LOG(INFO) << "configuring frame=" << it->second << " for window=" << e.window;
-    XConfigureWindow(_disp, it->second, e.value_mask, &changes);
+  auto it = _clients.find(e.window);
+  if (it != end(_clients)) {
+    LOG(INFO) << "configuring frame=" << it->second.frame << " for window=" << e.window;
+    XConfigureWindow(_disp, it->second.frame, e.value_mask, &changes);
   }
 }
 
@@ -137,8 +137,9 @@ void Manager::onNot_Unmap(const XUnmapEvent& e)
 {
   LOG(INFO) << "notify=Unmap window=" << e.window;
 
-  if (_frames.find(e.window) != end(_frames)) {
-    unframe(e.window);
+  auto it = _clients.find(e.window);
+  if (it != end(_clients)) {
+    unframe(it->second);
   }
 }
 
@@ -147,22 +148,23 @@ void Manager::onNot_Motion(const XButtonEvent& e)
   if (_drag.w == 0) return;
 
   auto frame = _drag.w;
-  auto it = std::find_if(begin(_frames), end(_frames), [&frame] (const std::pair<Window, Window>& m) { return m.second == frame; });
-  if (it == end(_frames)) {
+  auto it = std::find_if(begin(_clients), end(_clients),
+                         [&frame] (const auto& p) { return p.second.frame == frame; });
+  if (it == end(_clients)) {
     LOG(ERROR) << "frame not found for motion event frame=" << frame;
     return;
   }
-  auto child = it->first;
+  auto& client = it->second;
 
   int xdiff = e.x_root - _drag.xR;
   int ydiff = e.y_root - _drag.yR;
 
   if (_drag.btn == 1) {
-    XMoveWindow(_disp, _drag.w, _drag.x + xdiff, _drag.y + ydiff);
+    XMoveWindow(_disp, client.frame, _drag.x + xdiff, _drag.y + ydiff);
   } else if (_drag.btn == 3) {
-    XResizeWindow(_disp, frame,
+    XResizeWindow(_disp, client.frame,
                   std::max(1, _drag.width + xdiff), std::max(1, _drag.height + ydiff));
-    XResizeWindow(_disp, child,
+    XResizeWindow(_disp, client.client,
                   std::max(1, _drag.width + xdiff), std::max(1, _drag.height + ydiff));
   }
 }
@@ -205,6 +207,12 @@ void Manager::onBtnPress(const XButtonEvent& e)
 /// Wraps a custom frame Window around the Window w.
 void Manager::frame(Window w)
 {
+  auto it = _clients.find(w);
+  if (it != end(_clients)) {
+    LOG(ERROR) << "window=" << w << " is already framed!";
+    return;
+  }
+
   XWindowAttributes attrs;
   XGetWindowAttributes(_disp, w, &attrs);
 
@@ -215,20 +223,24 @@ void Manager::frame(Window w)
   XAddToSaveSet(_disp, w);
   XReparentWindow(_disp, w, frame, 0, 0);
   XMapWindow(_disp, frame);
-  _frames[w] = frame;
+
+  Client c;
+  c.frame = frame;
+  c.client = w;
+  c.root = getRoot(w);
+  _clients.insert({w, c});
 
   LOG(INFO) << "framed window=" << w << " frame=" << frame;
 }
 
-void Manager::unframe(Window w)
+void Manager::unframe(Client& c)
 {
-  const Window frame = _frames[w];
-  XUnmapWindow(_disp, frame);
-  XReparentWindow(_disp, w, getRoot(w), 0, 0);
-  XRemoveFromSaveSet(_disp, w);
-  XDestroyWindow(_disp, frame);
-  _frames.erase(w);
-  LOG(INFO) << "unframed window=" << w << " frame=" << frame;
+  XUnmapWindow(_disp, c.frame);
+  XReparentWindow(_disp, c.client, c.root, 0, 0);
+  XRemoveFromSaveSet(_disp, c.client);
+  XDestroyWindow(_disp, c.frame);
+  _clients.erase(c.client);
+  LOG(INFO) << "unframed window=" << c.client << " frame=" << c.frame;
 }
 
 Window Manager::getRoot(Window w)
