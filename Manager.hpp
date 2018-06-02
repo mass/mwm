@@ -18,7 +18,6 @@ struct Drag
 
 struct Client
 {
-  Window frame;
   Window client;
   Window root;
 };
@@ -37,12 +36,13 @@ class Manager
     void onReq_Configure(const XConfigureRequestEvent& e);
     void onNot_Unmap(const XUnmapEvent& e);
     void onNot_Motion(const XButtonEvent& e);
-
-    void frame(Window w);
-    void unframe(Client& c);
-    Window getRoot(Window w);
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
+
+    void addClient(Window w);
+    void delClient(Client& c);
+
+    Window getRoot(Window w);
 
   private:
 
