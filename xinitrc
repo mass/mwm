@@ -1,2 +1,0 @@
-xterm &
-exec ./wm
