@@ -7,6 +7,19 @@
 
 #include <algorithm>
 
+////////////////////////////////////////////////////////////////////////////////
+/// Keyboard / Mouse Shortcuts
+///
+/// Super         + h,j,k,l | Move focus to other window
+/// Super + Shift + h,j,k,l | TODO
+/// Super + Alt   + h,j,k,l | Move window in grid on current monitor
+/// Super + Ctrl  + h,j,k,l | Move window to other monitor
+///
+/// Super + D | Close the window under the cursor
+/// Super + T | Open a terminal
+/// Super + M | Maximize the current window
+/// Super + N | Restore/unmaximize the current window
+
 // Static error handler for XLib
 static int XError(Display* display, XErrorEvent* e) {
   char buf[1024];
@@ -53,23 +66,28 @@ bool Manager::init()
     s.num = i;
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    //XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
 
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    const uint32_t navKeyMods = ShiftMask | LockMask | ControlMask | Mod1Mask | Mod2Mask | Mod4Mask;
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
 
-    XGrabButton(_disp, 1, 0, root, false,
+    // For selecting focus
+    XGrabButton(_disp, 1, 0, root, true,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-    XGrabButton(_disp, 1, Mod1Mask, root, false,
+
+    // For moving/resizing
+    XGrabButton(_disp, 1, Mod4Mask, root, false,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-    XGrabButton(_disp, 3, Mod1Mask, root, false,
+    XGrabButton(_disp, 3, Mod4Mask, root, false,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
 
@@ -91,10 +109,10 @@ bool Manager::init()
                 << " xPos=" << crtc->x
                 << " yPos=" << crtc->y;
       Monitor m;
-      m.x = crtc->x;
-      m.y = crtc->y;
-      m.w = crtc->width;
-      m.h = crtc->height;
+      m.r.o.x = crtc->x;
+      m.r.o.y = crtc->y;
+      m.r.w = crtc->width;
+      m.r.h = crtc->height;
       m.name = monitor->name;
       s.monitors.push_back(m);
     }
@@ -240,7 +258,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
   //LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
   //          << " keyCode=" << e.keycode;
 
-  if ((e.state & Mod1Mask) &&
+  if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
   {
     LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
@@ -248,7 +266,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod1Mask) &&
+  if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_T)))
   {
     LOG(INFO) << "got WIN-T window=" << e.window;
@@ -269,7 +287,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod1Mask) &&
+  if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
        e.keycode == XKeysymToKeycode(_disp, XK_J) ||
        e.keycode == XKeysymToKeycode(_disp, XK_K) ||
@@ -302,10 +320,13 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod1Mask) &&
+  if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_M)))
   {
-    auto it = _clients.find(e.subwindow);
+    Window curFocus; int curRevert;
+    XGetInputFocus(_disp, &curFocus, &curRevert);
+
+    auto it = _clients.find(curFocus);
     if (it == end(_clients)) {
       LOG(ERROR) << "can't find client=" << e.subwindow;
       return;
@@ -319,23 +340,58 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
     const auto& monitors = _screens[client.root].monitors;
     auto it2 = std::find_if(begin(monitors), end(monitors),
-                            [c] (const auto& m) { return m.contains(c.x, c.y); });
+                            [c] (const auto& m) { return m.r.contains(c); });
     if (it2 == end(monitors)) {
       LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
       return;
     }
     auto& mon = *it2;
 
+    if (attr.width == mon.r.w && attr.height == mon.r.h) return;
+
+    client.preMax.o.x = attr.x;
+    client.preMax.o.y = attr.y;
+    client.preMax.w = attr.width;
+    client.preMax.h = attr.height;
+
     XWindowChanges changes;
-    changes.x = mon.x;
-    changes.y = mon.y;
-    changes.width = mon.w;
-    changes.height = mon.h;
+    changes.x = mon.r.o.x;
+    changes.y = mon.r.o.y;
+    changes.width = mon.r.w;
+    changes.height = mon.r.h;
     XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
     return;
   }
 
-  if ((e.state & Mod1Mask) &&
+  if ((e.state & Mod4Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_N)))
+  {
+    Window curFocus; int curRevert;
+    XGetInputFocus(_disp, &curFocus, &curRevert);
+
+    auto it = _clients.find(curFocus);
+    if (it == end(_clients)) {
+      LOG(ERROR) << "can't find client=" << e.subwindow;
+      return;
+    }
+    auto& client = it->second;
+
+    if (client.preMax.w == 0 || client.preMax.h == 0) return;
+
+    XWindowChanges changes;
+    changes.x = client.preMax.o.x;
+    changes.y = client.preMax.o.y;
+    changes.width = client.preMax.w;
+    changes.height = client.preMax.h;
+
+    client.preMax.w = 0;
+    client.preMax.h = 0;
+
+    XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
+    return;
+  }
+
+  if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_D)))
   {
     if (e.subwindow == 0) return;
@@ -373,7 +429,7 @@ void Manager::onBtnPress(const XButtonEvent& e)
   }
 
   // Alt-click
-  if (e.state & Mod1Mask) {
+  if (e.state & Mod4Mask) {
     XRaiseWindow(_disp, e.subwindow);
     XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
 
@@ -444,23 +500,17 @@ Window Manager::getRoot(Window w)
   return root;
 }
 
-bool Monitor::contains(int ox, int oy) const
-{
-  LOG(INFO) << " name=" << name
-            << " x=" << x
-            << " y=" << y
-            << " w=" << w
-            << " h=" << h
-            << " xw=" << x + w
-            << " yh=" << y + h
-            << " ox=" << ox
-            << " oy=" << oy;
-
-  return (ox >= x && ox <= x + w) && (oy >= y && oy <= y + h);
-}
-
+////////////////////////////////////////////////////////////////////////////////
+/// Ideally, the window selection process will work like so:
+/// 1) Cut the screen in half, only choosing windows on the `dir` side of the
+///    centerline. e.g `dir` == UP would draw a horizontal line at the center
+//     of the current window, and only choose windows with centers above
+//  2) Draw another centerline parallel to `dir`. Choose the window who is
+//     closest to this centerline perpendicularly to `dir`.
 Window Manager::getNextWindowInDir(DIR dir, Window w)
 {
+  if (dir == DIR::Last) return w;
+
   XWindowAttributes attr;
   XGetWindowAttributes(_disp, w, &attr);
   Point c = getCenter(attr.x, attr.y, attr.width, attr.height);
@@ -474,10 +524,17 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
     XWindowAttributes a;
     XGetWindowAttributes(_disp, m.first, &a);
     Point o = getCenter(a.x, a.y, a.width, a.height);
-    int dist = getDist(c, o, dir);
+    if (getDist(c, o, dir) == INT_MAX) continue; // Check on right side of centerline
 
-    if (dist < minDist) {
-      minDist = dist;
+    int perpDist;
+    if (dir == DIR::Up || dir == DIR::Down) {
+      perpDist = std::min(getDist(c, o, DIR::Left), getDist(c, o, DIR::Right));
+    } else {
+      perpDist = std::min(getDist(c, o, DIR::Up), getDist(c, o, DIR::Down));
+    }
+
+    if (perpDist < minDist) {
+      minDist = perpDist;
       closest = m.first;
     }
   }

@@ -15,6 +15,28 @@ enum class DIR
   Last
 };
 
+struct Point
+{
+  int x;
+  int y;
+
+  Point() : Point(0, 0) {}
+  Point(int x, int y) : x(x), y(y) {}
+};
+
+struct Rect
+{
+  Point o;
+  int w, h;
+
+  Rect() : o(0, 0), w(0), h(0) {}
+
+  inline bool contains(const Point& a) const {
+    return (a.x >= o.x && a.x <= o.x + w) &&
+           (a.y >= o.y && a.y <= o.y + h);
+  }
+};
+
 struct Drag
 {
   Window w;
@@ -32,15 +54,15 @@ struct Client
 {
   Window client;
   Window root;
+
+  Rect preMax;
 };
 
 struct Monitor
 {
   std::string name;
-  int x, y;
-  int w, h;
+  Rect r;
 
-  bool contains(int ox, int oy) const;
 };
 
 struct ScreenInfo
@@ -130,15 +152,6 @@ static inline std::string ToString(const XEvent& e) {
 
   return X_EVENT_TYPE_NAMES[e.type];
 }
-
-struct Point
-{
-  int x;
-  int y;
-
-  Point() : Point(0, 0) {}
-  Point(int x, int y) : x(x), y(y) {}
-};
 
 static inline Point getCenter(int x, int y, int w, int h)
 {
