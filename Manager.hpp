@@ -124,6 +124,7 @@ class Manager
     T closestRectFromPoint(const Point& p, std::vector<std::pair<Rect, T>>& rects);
 
   private:
+
     const std::string& _argDisp;
     const std::vector<int>& _argScreens;
 
@@ -132,6 +133,7 @@ class Manager
     std::map<Window /*client*/, Client> _clients;
     std::map<Window /*root*/, ScreenInfo> _screens;
     Drag _drag;
+    Window _prevFocus;
 };
 
 static inline std::string ToString(const XEvent& e) {

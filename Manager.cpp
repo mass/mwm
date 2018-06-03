@@ -472,13 +472,20 @@ void Manager::switchFocus(Window w)
 
   // Only grab clicks if not a root window
   if (_screens.find(curFocus) == end(_screens)) {
-    XGrabButton(_disp, 1, 0, curFocus, true, ButtonPressMask,
+    XGrabButton(_disp, 1, 0, curFocus, false, ButtonPressMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+  }
+
+  // If we lost focus by some other means, regrab clicks
+  if (curFocus != _prevFocus) {
+    XGrabButton(_disp, 1, 0, _prevFocus, false, ButtonPressMask,
                 GrabModeAsync, GrabModeAsync, None, None);
   }
 
   XRaiseWindow(_disp, w);
   XSetInputFocus(_disp, w, RevertToPointerRoot, CurrentTime);
   XUngrabButton(_disp, 1, 0, w);
+  _prevFocus = w;
 }
 
 void Manager::addClient(Window w, bool checkIgn)
