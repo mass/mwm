@@ -56,6 +56,8 @@ struct Client
   Window root;
 
   Rect preMax;
+
+  bool ign;
 };
 
 struct Monitor
@@ -89,7 +91,7 @@ class Manager
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
 
-    void addClient(Window w);
+    void addClient(Window w, bool checkIgn);
     void delClient(Client& c);
 
     Window getRoot(Window w);

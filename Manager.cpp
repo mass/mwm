@@ -74,10 +74,10 @@ bool Manager::init()
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
 
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
 
     // For selecting focus
     XGrabButton(_disp, 1, 0, root, true,
@@ -129,7 +129,7 @@ bool Manager::init()
     Window root2, parent; Window* children; uint32_t num;
     XQueryTree(_disp, root, &root2, &parent, &children, &num);
     for (uint32_t j = 0; j < num; ++j) {
-      addClient(children[j]);
+      addClient(children[j], true);
     }
     XFree(children);
     XUngrabServer(_disp);
@@ -190,7 +190,7 @@ void Manager::run()
 void Manager::onReq_Map(const XMapRequestEvent& e)
 {
   LOG(INFO) << "request=Map window=" << e.window;
-  addClient(e.window);
+  addClient(e.window, false);
 }
 
 void Manager::onReq_Configure(const XConfigureRequestEvent& e)
@@ -348,7 +348,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
       return;
     }
     auto& client = it->second;
-
+    if (client.ign) return;
 
     XWindowAttributes attr;
     XGetWindowAttributes(_disp, client.client, &attr);
@@ -391,6 +391,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
       return;
     }
     auto& client = it->second;
+    if (client.ign) return;
 
     if (client.preMax.w == 0 || client.preMax.h == 0) return;
 
@@ -410,18 +411,17 @@ void Manager::onKeyPress(const XKeyEvent& e)
   if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_D)))
   {
-    if (e.subwindow == 0) return;
-
-    LOG(INFO) << "got WIN-D window=" << e.window << " subwindow=" << e.subwindow;
+    Window curFocus; int curRevert;
+    XGetInputFocus(_disp, &curFocus, &curRevert);
 
     XEvent event;
     event.xclient.type = ClientMessage;
-    event.xclient.window = e.subwindow;
+    event.xclient.window = curFocus;
     event.xclient.message_type = XInternAtom(_disp, "WM_PROTOCOLS", true);
     event.xclient.format = 32;
     event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
     event.xclient.data.l[1] = CurrentTime;
-    XSendEvent(_disp, e.subwindow, false, NoEventMask, &event);
+    XSendEvent(_disp, curFocus, false, NoEventMask, &event);
     return;
   }
 }
@@ -481,7 +481,7 @@ void Manager::onBtnPress(const XButtonEvent& e)
   }
 }
 
-void Manager::addClient(Window w)
+void Manager::addClient(Window w, bool checkIgn)
 {
   auto it = _clients.find(w);
   if (it != end(_clients)) {
@@ -489,9 +489,13 @@ void Manager::addClient(Window w)
     return;
   }
 
+  XWindowAttributes attrs;
+  XGetWindowAttributes(_disp, w, &attrs);
+
   Client c;
   c.client = w;
   c.root = getRoot(w);
+  c.ign = checkIgn && (attrs.override_redirect || (attrs.map_state != IsViewable));
   _clients.insert({w, c});
 
   XMapWindow(_disp, w);
@@ -529,6 +533,7 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
 
   for (const auto& m : _clients) {
     if (m.first == w) continue;
+    if (m.second.ign) continue;
 
     XWindowAttributes a;
     XGetWindowAttributes(_disp, m.first, &a);
