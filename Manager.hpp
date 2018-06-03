@@ -29,11 +29,29 @@ struct Rect
   Point o;
   int w, h;
 
-  Rect() : o(0, 0), w(0), h(0) {}
+  Rect() : Rect(0, 0, 0, 0) {}
+  Rect(int x, int y, int w, int h)
+    : o(x, y), w(w), h(h) {}
+  Rect(Window w, Display* d)
+  {
+    XWindowAttributes attr;
+    XGetWindowAttributes(d, w, &attr);
+    o.x = attr.x; o.y = attr.y;
+    w = attr.width;
+    h = attr.height;
+  }
 
   inline bool contains(const Point& a) const {
     return (a.x >= o.x && a.x <= o.x + w) &&
            (a.y >= o.y && a.y <= o.y + h);
+  }
+
+  inline Point getCenter()
+  {
+    Point c(o);
+    c.x += (w/2);
+    c.y += (h/2);
+    return c;
   }
 };
 
@@ -58,6 +76,10 @@ struct Client
   Rect preMax;
 
   bool ign;
+
+  inline Rect getRect(Display* disp) {
+    return {client, disp};
+  }
 };
 
 struct Monitor
@@ -91,11 +113,15 @@ class Manager
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
 
+    void switchFocus(Window w);
     void addClient(Window w, bool checkIgn);
     void delClient(Client& c);
 
     Window getRoot(Window w);
     Window getNextWindowInDir(DIR dir, Window w);
+
+    template<typename T>
+    T closestRectFromPoint(const Point& p, std::vector<std::pair<Rect, T>>& rects);
 
   private:
     const std::string& _argDisp;

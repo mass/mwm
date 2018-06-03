@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <math.h>
+#include <optional>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
@@ -67,7 +68,8 @@ bool Manager::init()
     ScreenInfo s;
     s.num = i;
 
-    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask);
+    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask);
+
     //XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
@@ -78,19 +80,6 @@ bool Manager::init()
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-
-    // For selecting focus
-    XGrabButton(_disp, 1, 0, root, true,
-                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-
-    // For moving/resizing
-    XGrabButton(_disp, 1, Mod4Mask, root, false,
-                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-    XGrabButton(_disp, 3, Mod4Mask, root, false,
-                ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
 
     // Set the background
     XSetWindowBackground(_disp, root, 0x604020);
@@ -240,11 +229,11 @@ void Manager::onNot_Motion(const XButtonEvent& e)
     switch(_drag.dirVert) {
       case DIR::Up:
         ny = _drag.y + ydiff;
-        nh = std::max(1, _drag.height - ydiff);
+        nh = std::max(25, _drag.height - ydiff);
         break;
       case DIR::Down:
         ny = _drag.y;
-        nh = std::max(1, _drag.height + ydiff);
+        nh = std::max(25, _drag.height + ydiff);
         break;
       default:
         ny = _drag.y;
@@ -254,11 +243,11 @@ void Manager::onNot_Motion(const XButtonEvent& e)
     switch(_drag.dirHorz) {
       case DIR::Left:
         nx = _drag.x + xdiff;
-        nw = std::max(1, _drag.width - xdiff);
+        nw = std::max(25, _drag.width - xdiff);
         break;
       case DIR::Right:
         nx = _drag.x;
-        nw = std::max(1, _drag.width + xdiff);
+        nw = std::max(25, _drag.width + xdiff);
         break;
       default:
         nx = _drag.x;
@@ -322,17 +311,12 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
     Window curFocus; int curRevert;
     XGetInputFocus(_disp, &curFocus, &curRevert);
-
-    auto it = _clients.find(curFocus);
-    if (it == end(_clients)) {
-      LOG(ERROR) << "current focus not found curFocus=" << curFocus;
-      return;
+    if (_clients.find(curFocus) == end(_clients)) {
+      curFocus = getRoot(curFocus);
     }
 
     Window nextFocus = getNextWindowInDir(dir, curFocus);
-    if (nextFocus == curFocus) return;
-    XRaiseWindow(_disp, nextFocus);
-    XSetInputFocus(_disp, nextFocus, RevertToPointerRoot, CurrentTime);
+    switchFocus(nextFocus);
     return;
   }
 
@@ -422,6 +406,12 @@ void Manager::onKeyPress(const XKeyEvent& e)
     event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
     event.xclient.data.l[1] = CurrentTime;
     XSendEvent(_disp, curFocus, false, NoEventMask, &event);
+
+    std::vector<std::pair<Rect, Window>> windows;
+    for (auto& c : _clients)
+      if (c.first != curFocus && !c.second.ign)
+        windows.emplace_back(c.second.getRect(_disp), c.first);
+    switchFocus(closestRectFromPoint(Rect(curFocus, _disp).getCenter(), windows));
     return;
   }
 }
@@ -430,32 +420,24 @@ void Manager::onBtnPress(const XButtonEvent& e)
 {
   LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow << " " << e.state;
 
-  if (e.subwindow == 0) {
-    // Move focus to root window
-    XSetInputFocus(_disp, e.window, RevertToPointerRoot, CurrentTime);
+  // Normal click
+  if (e.state == 0) {
+    switchFocus(e.window);
     _drag.w = 0;
     return;
   }
 
-  // Normal click
-  if (e.state == 0) {
-    XRaiseWindow(_disp, e.subwindow);
-    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
-    _drag.w = 0;
-  }
-
   // Alt-click
   if (e.state & Mod4Mask) {
-    XRaiseWindow(_disp, e.subwindow);
-    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+    switchFocus(e.window);
 
     _drag.btn = e.button;
     _drag.xR = e.x_root;
     _drag.yR = e.y_root;
-    _drag.w = e.subwindow;
+    _drag.w = e.window;
 
     XWindowAttributes attr;
-    XGetWindowAttributes(_disp, e.subwindow, &attr);
+    XGetWindowAttributes(_disp, e.window, &attr);
     _drag.x = attr.x;
     _drag.y = attr.y;
     _drag.width = attr.width;
@@ -481,6 +463,24 @@ void Manager::onBtnPress(const XButtonEvent& e)
   }
 }
 
+void Manager::switchFocus(Window w)
+{
+  Window curFocus; int curRevert;
+  XGetInputFocus(_disp, &curFocus, &curRevert);
+
+  if (curFocus == w) return;
+
+  // Only grab clicks if not a root window
+  if (_screens.find(curFocus) == end(_screens)) {
+    XGrabButton(_disp, 1, 0, curFocus, true, ButtonPressMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+  }
+
+  XRaiseWindow(_disp, w);
+  XSetInputFocus(_disp, w, RevertToPointerRoot, CurrentTime);
+  XUngrabButton(_disp, 1, 0, w);
+}
+
 void Manager::addClient(Window w, bool checkIgn)
 {
   auto it = _clients.find(w);
@@ -492,14 +492,28 @@ void Manager::addClient(Window w, bool checkIgn)
   XWindowAttributes attrs;
   XGetWindowAttributes(_disp, w, &attrs);
 
+  if (attrs.override_redirect) return; //TODO: Is this right?
+
   Client c;
   c.client = w;
   c.root = getRoot(w);
   c.ign = checkIgn && (attrs.override_redirect || (attrs.map_state != IsViewable));
   _clients.insert({w, c});
 
-  XMapWindow(_disp, w);
+  // For selecting focus
+  XGrabButton(_disp, 1, 0, w, false,
+              ButtonPressMask | ButtonReleaseMask,
+              GrabModeAsync, GrabModeAsync, None, None);
 
+  // For moving/resizing
+  XGrabButton(_disp, 1, Mod4Mask, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+  XGrabButton(_disp, 3, Mod4Mask, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+
+  XMapWindow(_disp, w);
   LOG(INFO) << "added client=" << w;
 }
 
@@ -558,4 +572,22 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
 
   if (closest == 0) return w;
   return closest;
+}
+
+template<typename T>
+T Manager::closestRectFromPoint(const Point& p, std::vector<std::pair<Rect, T>>& rects)
+{
+  int minDist = INT_MAX;
+  std::optional<T> closest;
+  for (auto& r : rects) {
+    Point o = r.first.getCenter();
+    int vertDist = std::min(getDist(p, o, DIR::Up), getDist(p, o, DIR::Down));
+    int horzDist = std::min(getDist(p, o, DIR::Left), getDist(p, o, DIR::Right));
+    int dist = sqrt((vertDist*vertDist) + (horzDist*horzDist));
+    if (dist < minDist) {
+      minDist = dist;
+      closest = r.second;
+    }
+  }
+  return closest.value_or(T());
 }
