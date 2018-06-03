@@ -3,6 +3,7 @@
 #include <mass/Log.hpp>
 
 #include <X11/Xutil.h>
+#include <X11/cursorfont.h>
 #include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
@@ -95,6 +96,10 @@ bool Manager::init()
     XSetWindowBackground(_disp, root, 0x604020);
     XClearWindow(_disp, root);
 
+    // Less ugly cursor
+    Cursor cursor = XCreateFontCursor(_disp, XC_crosshair);
+    XDefineCursor(_disp, root, cursor);
+
     // Identify monitors on this X screen
     XRRScreenResources* res = XRRGetScreenResourcesCurrent(_disp, root);
     for (int j = 0; j < res->noutput; ++j) {
@@ -118,6 +123,16 @@ bool Manager::init()
     }
 
     _screens.insert({root, s});
+
+    // Add pre-existing windows on this screen
+    XGrabServer(_disp);
+    Window root2, parent; Window* children; uint32_t num;
+    XQueryTree(_disp, root, &root2, &parent, &children, &num);
+    for (uint32_t j = 0; j < num; ++j) {
+      addClient(children[j]);
+    }
+    XFree(children);
+    XUngrabServer(_disp);
   }
 
   return true;
