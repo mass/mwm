@@ -57,6 +57,12 @@ bool Manager::init()
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), Mod1Mask, root, false, GrabModeAsync, GrabModeAsync);
+
     XGrabButton(_disp, 1, 0, root, false,
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
@@ -189,8 +195,30 @@ void Manager::onNot_Motion(const XButtonEvent& e)
   if (_drag.btn == 1) {
     XMoveWindow(_disp, client, _drag.x + xdiff, _drag.y + ydiff);
   } else if (_drag.btn == 3) {
-    XResizeWindow(_disp, client,
-                  std::max(1, _drag.width + xdiff), std::max(1, _drag.height + ydiff));
+    switch (_drag.dir) {
+      case DIR::Up:
+        XMoveResizeWindow(_disp, client,
+                          _drag.x, _drag.y + ydiff,
+                          _drag.width, std::max(1, _drag.height - ydiff));
+        break;
+      case DIR::Down:
+        XMoveResizeWindow(_disp, client,
+                          _drag.x, _drag.y,
+                          _drag.width, std::max(1, _drag.height + ydiff));
+        break;
+      case DIR::Left:
+        XMoveResizeWindow(_disp, client,
+                          _drag.x + xdiff, _drag.y,
+                          std::max(1, _drag.width - xdiff), _drag.height);
+        break;
+      case DIR::Right:
+        XMoveResizeWindow(_disp, client,
+                          _drag.x, _drag.y,
+                          std::max(1, _drag.width + xdiff), _drag.height);
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -204,6 +232,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
   {
     LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
     if (e.subwindow != 0) XRaiseWindow(_disp, e.subwindow);
+    return;
   }
 
   if ((e.state & Mod1Mask) &&
@@ -224,6 +253,40 @@ void Manager::onKeyPress(const XKeyEvent& e)
     cmd << " terminator -m &";
     LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
     system(cmd.str().c_str());
+    return;
+  }
+
+  if ((e.state & Mod1Mask) &&
+      (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
+       e.keycode == XKeysymToKeycode(_disp, XK_J) ||
+       e.keycode == XKeysymToKeycode(_disp, XK_K) ||
+       e.keycode == XKeysymToKeycode(_disp, XK_L)))
+  {
+    DIR dir;
+    if (e.keycode == XKeysymToKeycode(_disp, XK_H)) {
+      dir = DIR::Left;
+    } else if(e.keycode == XKeysymToKeycode(_disp, XK_J)) {
+      dir = DIR::Down;
+    } else if(e.keycode == XKeysymToKeycode(_disp, XK_K)) {
+      dir = DIR::Up;
+    } else if(e.keycode == XKeysymToKeycode(_disp, XK_L)) {
+      dir = DIR::Right;
+    }
+
+    Window curFocus; int curRevert;
+    XGetInputFocus(_disp, &curFocus, &curRevert);
+
+    auto it = _clients.find(curFocus);
+    if (it == end(_clients)) {
+      LOG(ERROR) << "current focus not found curFocus=" << curFocus;
+      return;
+    }
+
+    Window nextFocus = getNextWindowInDir(dir, curFocus);
+    if (nextFocus == curFocus) return;
+    XRaiseWindow(_disp, nextFocus);
+    XSetInputFocus(_disp, nextFocus, RevertToPointerRoot, CurrentTime);
+    return;
   }
 
   if ((e.state & Mod1Mask) &&
@@ -239,22 +302,13 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
     XWindowAttributes attr;
     XGetWindowAttributes(_disp, client.client, &attr);
-
-    int cx,cy;
-    std::tie(cx, cy) = getCenter(attr.x, attr.y, attr.width, attr.height);
-
-    LOG(INFO) << " x=" << attr.x
-              << " y=" << attr.y
-              << " w=" << attr.width
-              << " h=" << attr.height
-              << " cx=" << cx
-              << " cy=" << cy;
+    Point c = getCenter(attr.x, attr.y, attr.width, attr.height);
 
     const auto& monitors = _screens[client.root].monitors;
     auto it2 = std::find_if(begin(monitors), end(monitors),
-                            [cx,cy] (const auto& m) { return m.contains(cx, cy); });
+                            [c] (const auto& m) { return m.contains(c.x, c.y); });
     if (it2 == end(monitors)) {
-      LOG(ERROR) << "no monitor contains (" << cx << "," << cy << ")";
+      LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
       return;
     }
     auto& mon = *it2;
@@ -265,6 +319,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     changes.width = mon.w;
     changes.height = mon.h;
     XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
+    return;
   }
 
   if ((e.state & Mod1Mask) &&
@@ -282,6 +337,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
     event.xclient.data.l[1] = CurrentTime;
     XSendEvent(_disp, e.subwindow, false, NoEventMask, &event);
+    return;
   }
 }
 
@@ -300,6 +356,9 @@ void Manager::onBtnPress(const XButtonEvent& e)
 
   // Alt-click
   if (e.state & Mod1Mask) {
+    XRaiseWindow(_disp, e.subwindow);
+    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+
     _drag.btn = e.button;
     _drag.xR = e.x_root;
     _drag.yR = e.y_root;
@@ -312,8 +371,20 @@ void Manager::onBtnPress(const XButtonEvent& e)
     _drag.width = attr.width;
     _drag.height = attr.height;
 
-    XRaiseWindow(_disp, e.subwindow);
-    XSetInputFocus(_disp, e.subwindow, RevertToPointerRoot, CurrentTime);
+    Point click(e.x_root, e.y_root);
+
+    auto near = [] (int p2, int p1) -> bool { return std::max(0, p2 - p1) < 50; };
+
+    _drag.dir = DIR::Last;
+    if (near(click.x, attr.x)) {
+      _drag.dir = DIR::Left;
+    } else if (near(attr.x + attr.width, click.x)) {
+      _drag.dir = DIR::Right;
+    } else if (near(click.y, attr.y)) {
+      _drag.dir = DIR::Up;
+    } else if (near(attr.y + attr.height, click.y)) {
+      _drag.dir = DIR::Down;
+    }
   }
 }
 
@@ -365,4 +436,31 @@ bool Monitor::contains(int ox, int oy) const
             << " oy=" << oy;
 
   return (ox >= x && ox <= x + w) && (oy >= y && oy <= y + h);
+}
+
+Window Manager::getNextWindowInDir(DIR dir, Window w)
+{
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, w, &attr);
+  Point c = getCenter(attr.x, attr.y, attr.width, attr.height);
+
+  Window closest = 0;
+  int minDist = INT_MAX;
+
+  for (const auto& m : _clients) {
+    if (m.first == w) continue;
+
+    XWindowAttributes a;
+    XGetWindowAttributes(_disp, m.first, &a);
+    Point o = getCenter(a.x, a.y, a.width, a.height);
+    int dist = getDist(c, o, dir);
+
+    if (dist < minDist) {
+      minDist = dist;
+      closest = m.first;
+    }
+  }
+
+  if (closest == 0) return w;
+  return closest;
 }

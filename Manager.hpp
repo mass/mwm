@@ -2,8 +2,18 @@
 
 #include <X11/Xlib.h>
 
+#include <limits.h>
 #include <map>
 #include <vector>
+
+enum class DIR
+{
+  Up,
+  Down,
+  Left,
+  Right,
+  Last
+};
 
 struct Drag
 {
@@ -14,6 +24,7 @@ struct Drag
   int width, height;
 
   int btn;
+  DIR dir;
 };
 
 struct Client
@@ -59,6 +70,7 @@ class Manager
     void delClient(Client& c);
 
     Window getRoot(Window w);
+    Window getNextWindowInDir(DIR dir, Window w);
 
   private:
     const std::string& _argDisp;
@@ -71,7 +83,7 @@ class Manager
     Drag _drag;
 };
 
-static std::string ToString(const XEvent& e) {
+static inline std::string ToString(const XEvent& e) {
   static const char* const X_EVENT_TYPE_NAMES[] = {
       "",
       "",
@@ -118,10 +130,43 @@ static std::string ToString(const XEvent& e) {
   return X_EVENT_TYPE_NAMES[e.type];
 }
 
-static inline std::pair<int,int> getCenter(int x, int y, int w, int h)
+struct Point
 {
-  int cx = x + (w/2);
-  int cy = y + (h/2);
-  return std::make_pair(cx,cy);
+  int x;
+  int y;
+
+  Point() : Point(0, 0) {}
+  Point(int x, int y) : x(x), y(y) {}
+};
+
+static inline Point getCenter(int x, int y, int w, int h)
+{
+  Point p;
+  p.x = x + (w/2);
+  p.y = y + (h/2);
+  return p;
 }
 
+static inline int getDist(Point a, Point b, DIR dir)
+{
+  int dist;
+  switch (dir) {
+    case DIR::Up:
+      dist = a.y - b.y;
+      break;
+    case DIR::Down:
+      dist = b.y - a.y;
+      break;
+    case DIR::Left:
+      dist = a.x - b.x;
+      break;
+    case DIR::Right:
+      dist = b.x - a.x;
+      break;
+    default:
+      throw std::runtime_error("invalid DIR enum");
+  };
+  if (dist < 0) dist = INT_MAX;
+
+  return dist;
+}
