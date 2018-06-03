@@ -24,7 +24,8 @@ struct Drag
   int width, height;
 
   int btn;
-  DIR dir;
+  DIR dirVert;
+  DIR dirHorz;
 };
 
 struct Client

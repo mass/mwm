@@ -73,6 +73,10 @@ bool Manager::init()
                 ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
 
+    // Set the background
+    XSetWindowBackground(_disp, root, 0x604020);
+    XClearWindow(_disp, root);
+
     // Identify monitors on this X screen
     XRRScreenResources* res = XRRGetScreenResourcesCurrent(_disp, root);
     for (int j = 0; j < res->noutput; ++j) {
@@ -193,32 +197,41 @@ void Manager::onNot_Motion(const XButtonEvent& e)
   int ydiff = e.y_root - _drag.yR;
 
   if (_drag.btn == 1) {
+    // Alt-LeftClick moves window around
     XMoveWindow(_disp, client, _drag.x + xdiff, _drag.y + ydiff);
-  } else if (_drag.btn == 3) {
-    switch (_drag.dir) {
+  }
+  else if (_drag.btn == 3) {
+    // Alt-RightClick resizes
+    int nx, ny, nw, nh;
+    switch(_drag.dirVert) {
       case DIR::Up:
-        XMoveResizeWindow(_disp, client,
-                          _drag.x, _drag.y + ydiff,
-                          _drag.width, std::max(1, _drag.height - ydiff));
+        ny = _drag.y + ydiff;
+        nh = std::max(1, _drag.height - ydiff);
         break;
       case DIR::Down:
-        XMoveResizeWindow(_disp, client,
-                          _drag.x, _drag.y,
-                          _drag.width, std::max(1, _drag.height + ydiff));
-        break;
-      case DIR::Left:
-        XMoveResizeWindow(_disp, client,
-                          _drag.x + xdiff, _drag.y,
-                          std::max(1, _drag.width - xdiff), _drag.height);
-        break;
-      case DIR::Right:
-        XMoveResizeWindow(_disp, client,
-                          _drag.x, _drag.y,
-                          std::max(1, _drag.width + xdiff), _drag.height);
+        ny = _drag.y;
+        nh = std::max(1, _drag.height + ydiff);
         break;
       default:
+        ny = _drag.y;
+        nh = _drag.height;
         break;
     }
+    switch(_drag.dirHorz) {
+      case DIR::Left:
+        nx = _drag.x + xdiff;
+        nw = std::max(1, _drag.width - xdiff);
+        break;
+      case DIR::Right:
+        nx = _drag.x;
+        nw = std::max(1, _drag.width + xdiff);
+        break;
+      default:
+        nx = _drag.x;
+        nw = _drag.width;
+        break;
+    }
+    XMoveResizeWindow(_disp, client, nx, ny, nw, nh);
   }
 }
 
@@ -380,15 +393,18 @@ void Manager::onBtnPress(const XButtonEvent& e)
 
     auto near = [] (int p2, int p1) -> bool { return std::max(0, p2 - p1) < 50; };
 
-    _drag.dir = DIR::Last;
+    _drag.dirHorz = DIR::Last;
     if (near(click.x, attr.x)) {
-      _drag.dir = DIR::Left;
+      _drag.dirHorz = DIR::Left;
     } else if (near(attr.x + attr.width, click.x)) {
-      _drag.dir = DIR::Right;
-    } else if (near(click.y, attr.y)) {
-      _drag.dir = DIR::Up;
+      _drag.dirHorz = DIR::Right;
+    }
+
+    _drag.dirVert = DIR::Last;
+    if (near(click.y, attr.y)) {
+      _drag.dirVert = DIR::Up;
     } else if (near(attr.y + attr.height, click.y)) {
-      _drag.dir = DIR::Down;
+      _drag.dirVert = DIR::Down;
     }
   }
 }
