@@ -343,9 +343,14 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
 void Manager::onBtnPress(const XButtonEvent& e)
 {
-  if (e.subwindow == 0) return;
-
   LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow << " " << e.state;
+
+  if (e.subwindow == 0) {
+    // Move focus to root window
+    XSetInputFocus(_disp, e.window, RevertToPointerRoot, CurrentTime);
+    _drag.w = 0;
+    return;
+  }
 
   // Normal click
   if (e.state == 0) {
