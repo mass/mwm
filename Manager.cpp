@@ -6,6 +6,7 @@
 #include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
+#include <math.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
@@ -72,11 +73,10 @@ bool Manager::init()
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
 
-    const uint32_t navKeyMods = ShiftMask | LockMask | ControlMask | Mod1Mask | Mod2Mask | Mod4Mask;
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), navKeyMods, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), AnyModifier, root, false, GrabModeAsync, GrabModeAsync);
 
     // For selecting focus
     XGrabButton(_disp, 1, 0, root, true,
@@ -134,6 +134,7 @@ void Manager::run()
       // Ignore these events
       case ReparentNotify:
       case MapNotify:
+      case MappingNotify:
       case ConfigureNotify:
       case CreateNotify:
       case DestroyNotify:
@@ -500,13 +501,6 @@ Window Manager::getRoot(Window w)
   return root;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// Ideally, the window selection process will work like so:
-/// 1) Cut the screen in half, only choosing windows on the `dir` side of the
-///    centerline. e.g `dir` == UP would draw a horizontal line at the center
-//     of the current window, and only choose windows with centers above
-//  2) Draw another centerline parallel to `dir`. Choose the window who is
-//     closest to this centerline perpendicularly to `dir`.
 Window Manager::getNextWindowInDir(DIR dir, Window w)
 {
   if (dir == DIR::Last) return w;
@@ -524,7 +518,8 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
     XWindowAttributes a;
     XGetWindowAttributes(_disp, m.first, &a);
     Point o = getCenter(a.x, a.y, a.width, a.height);
-    if (getDist(c, o, dir) == INT_MAX) continue; // Check on right side of centerline
+    int plelDist = getDist(c, o, dir);
+    if (plelDist == INT_MAX) continue; // Check on right side of centerline
 
     int perpDist;
     if (dir == DIR::Up || dir == DIR::Down) {
@@ -532,9 +527,11 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
     } else {
       perpDist = std::min(getDist(c, o, DIR::Up), getDist(c, o, DIR::Down));
     }
+    if (perpDist == INT_MAX) continue;
 
-    if (perpDist < minDist) {
-      minDist = perpDist;
+    int dist = sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
+    if (dist < minDist) {
+      minDist = dist;
       closest = m.first;
     }
   }
