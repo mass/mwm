@@ -114,6 +114,8 @@ class Manager
     void onBtnPress(const XButtonEvent& e);
 
     void switchFocus(Window w);
+    void handleFocusChange(Window w, bool in);
+
     void addClient(Window w, bool checkIgn);
     void delClient(Client& c);
 
@@ -133,7 +135,6 @@ class Manager
     std::map<Window /*client*/, Client> _clients;
     std::map<Window /*root*/, ScreenInfo> _screens;
     Drag _drag;
-    Window _prevFocus;
 };
 
 static inline std::string ToString(const XEvent& e) {

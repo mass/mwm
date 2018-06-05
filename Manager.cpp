@@ -18,7 +18,7 @@
 /// Super + Alt   + h,j,k,l | Move window in grid on current monitor
 /// Super + Ctrl  + h,j,k,l | Move window to other monitor
 ///
-/// Super + D | Close the window under the cursor
+/// Super + D | Close the window that currently has focus
 /// Super + T | Open a terminal
 /// Super + M | Maximize the current window
 /// Super + N | Restore/unmaximize the current window
@@ -68,7 +68,7 @@ bool Manager::init()
     ScreenInfo s;
     s.num = i;
 
-    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask);
+    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask | FocusChangeMask);
 
     //XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
@@ -159,6 +159,13 @@ void Manager::run()
       case MotionNotify:
         while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
         onNot_Motion(e.xbutton);
+        break;
+
+      case FocusIn:
+        handleFocusChange(e.xfocus.window, true);
+        break;
+      case FocusOut:
+        handleFocusChange(e.xfocus.window, false);
         break;
 
       case KeyPress:
@@ -470,22 +477,23 @@ void Manager::switchFocus(Window w)
 
   if (curFocus == w) return;
 
-  // Only grab clicks if not a root window
-  if (_screens.find(curFocus) == end(_screens)) {
-    XGrabButton(_disp, 1, 0, curFocus, false, ButtonPressMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-  }
-
-  // If we lost focus by some other means, regrab clicks
-  if (curFocus != _prevFocus) {
-    XGrabButton(_disp, 1, 0, _prevFocus, false, ButtonPressMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-  }
-
   XRaiseWindow(_disp, w);
   XSetInputFocus(_disp, w, RevertToPointerRoot, CurrentTime);
-  XUngrabButton(_disp, 1, 0, w);
-  _prevFocus = w;
+}
+
+void Manager::handleFocusChange(Window w, bool in)
+{
+  if (_screens.find(w) != end(_screens)) return;
+  if (!in) {
+    LOG(INFO) << "regrab window=" << w;
+    XGrabButton(_disp, 1, 0, w, false, ButtonPressMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+    XSetWindowBorderWidth(_disp, w, 2);
+  } else {
+    LOG(INFO) << "ungrab window=" << w;
+    XUngrabButton(_disp, 1, 0, w);
+    XSetWindowBorderWidth(_disp, w, 5);
+  }
 }
 
 void Manager::addClient(Window w, bool checkIgn)
@@ -519,6 +527,11 @@ void Manager::addClient(Window w, bool checkIgn)
   XGrabButton(_disp, 3, Mod4Mask, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
+
+  XSelectInput(_disp, w, FocusChangeMask);
+
+  XSetWindowBorder(_disp, w, 0x005F87);
+  XSetWindowBorderWidth(_disp, w, 2);
 
   XMapWindow(_disp, w);
   LOG(INFO) << "added client=" << w;
