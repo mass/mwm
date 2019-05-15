@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
   std::string display;
   std::vector<int> screens;
 
-  char ch;
+  int ch;
   while ((ch = getopt_long(argc, argv, "d:s:", long_options, NULL)) != -1) {
     switch (ch) {
       case 'd':
@@ -27,7 +27,8 @@ int main(int argc, char* argv[])
   }
 
   Manager m(display, screens);
-  if (!m.init()) return EXIT_FAILURE;
+  if (!m.init())
+    return EXIT_FAILURE;
   m.run();
 
   return EXIT_SUCCESS;

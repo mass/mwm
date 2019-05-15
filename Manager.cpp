@@ -44,7 +44,8 @@ Manager::Manager(const std::string& display,
 
 Manager::~Manager()
 {
-  if (_disp != nullptr) XCloseDisplay(_disp);
+  if (_disp != nullptr)
+    XCloseDisplay(_disp);
 }
 
 bool Manager::init()
@@ -70,16 +71,25 @@ bool Manager::init()
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask | FocusChangeMask);
 
-    //XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    // Grab keys with Super/GUI modifier with and without NUMLOCK modifier
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
 
     // Set the background
     XSetWindowBackground(_disp, root, 0x604020);
@@ -200,7 +210,7 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
   changes.height = e.height;
   changes.border_width = e.border_width;
 
-  XConfigureWindow(_disp, e.window, e.value_mask, &changes);
+  XConfigureWindow(_disp, e.window, (unsigned) e.value_mask, &changes);
 }
 
 void Manager::onNot_Unmap(const XUnmapEvent& e)
@@ -267,14 +277,15 @@ void Manager::onNot_Motion(const XButtonEvent& e)
 
 void Manager::onKeyPress(const XKeyEvent& e)
 {
-  //LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
-  //          << " keyCode=" << e.keycode;
+  LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
+            << " keyCode=" << e.keycode << " state=" << e.state;
 
   if ((e.state & Mod4Mask) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
   {
     LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
-    if (e.subwindow != 0) XRaiseWindow(_disp, e.subwindow);
+    if (e.subwindow != 0)
+      XRaiseWindow(_disp, e.subwindow);
     return;
   }
 
@@ -475,18 +486,22 @@ void Manager::switchFocus(Window w)
   Window curFocus; int curRevert;
   XGetInputFocus(_disp, &curFocus, &curRevert);
 
-  if (curFocus == w) return;
+  if (curFocus == w)
+    return;
 
-  XRaiseWindow(_disp, w);
   XSetInputFocus(_disp, w, RevertToPointerRoot, CurrentTime);
+  XRaiseWindow(_disp, w);
 }
 
 void Manager::handleFocusChange(Window w, bool in)
 {
-  if (_screens.find(w) != end(_screens)) return;
+  if (_screens.find(w) != end(_screens))
+    return;
   if (!in) {
     LOG(INFO) << "regrab window=" << w;
     XGrabButton(_disp, 1, 0, w, false, ButtonPressMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+    XGrabButton(_disp, 1, Mod2Mask, w, false, ButtonPressMask,
                 GrabModeAsync, GrabModeAsync, None, None);
     XSetWindowBorderWidth(_disp, w, 2);
   } else {
@@ -507,7 +522,8 @@ void Manager::addClient(Window w, bool checkIgn)
   XWindowAttributes attrs;
   XGetWindowAttributes(_disp, w, &attrs);
 
-  if (attrs.override_redirect) return; //TODO: Is this right?
+  if (attrs.override_redirect)
+    return; //TODO: Is this right?
 
   Client c;
   c.client = w;
@@ -519,12 +535,21 @@ void Manager::addClient(Window w, bool checkIgn)
   XGrabButton(_disp, 1, 0, w, false,
               ButtonPressMask | ButtonReleaseMask,
               GrabModeAsync, GrabModeAsync, None, None);
+  XGrabButton(_disp, 1, Mod2Mask, w, false,
+              ButtonPressMask | ButtonReleaseMask,
+              GrabModeAsync, GrabModeAsync, None, None);
 
   // For moving/resizing
   XGrabButton(_disp, 1, Mod4Mask, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
+  XGrabButton(_disp, 1, Mod2Mask | Mod4Mask, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
   XGrabButton(_disp, 3, Mod4Mask, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+  XGrabButton(_disp, 3, Mod2Mask | Mod4Mask, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
 
@@ -566,14 +591,17 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
   int minDist = INT_MAX;
 
   for (const auto& m : _clients) {
-    if (m.first == w) continue;
-    if (m.second.ign) continue;
+    if (m.first == w)
+      continue;
+    if (m.second.ign)
+      continue;
 
     XWindowAttributes a;
     XGetWindowAttributes(_disp, m.first, &a);
     Point o = getCenter(a.x, a.y, a.width, a.height);
     int plelDist = getDist(c, o, dir);
-    if (plelDist == INT_MAX) continue; // Check on right side of centerline
+    if (plelDist == INT_MAX)
+      continue; // Check on right side of centerline
 
     int perpDist;
     if (dir == DIR::Up || dir == DIR::Down) {
@@ -581,16 +609,18 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
     } else {
       perpDist = std::min(getDist(c, o, DIR::Up), getDist(c, o, DIR::Down));
     }
-    if (perpDist == INT_MAX) continue;
+    if (perpDist == INT_MAX)
+      continue;
 
-    int dist = sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
+    int dist = (int) sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
     if (dist < minDist) {
       minDist = dist;
       closest = m.first;
     }
   }
 
-  if (closest == 0) return w;
+  if (closest == 0)
+    return w;
   return closest;
 }
 
@@ -603,7 +633,7 @@ T Manager::closestRectFromPoint(const Point& p, std::vector<std::pair<Rect, T>>&
     Point o = r.first.getCenter();
     int vertDist = std::min(getDist(p, o, DIR::Up), getDist(p, o, DIR::Down));
     int horzDist = std::min(getDist(p, o, DIR::Left), getDist(p, o, DIR::Right));
-    int dist = sqrt((vertDist*vertDist) + (horzDist*horzDist));
+    int dist = (int) sqrt((vertDist*vertDist) + (horzDist*horzDist));
     if (dist < minDist) {
       minDist = dist;
       closest = r.second;
