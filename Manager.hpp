@@ -112,6 +112,7 @@ class Manager
     void onNot_Motion(const XButtonEvent& e);
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
+    void onClientMessage(const XClientMessageEvent& e);
 
     void switchFocus(Window w);
     void handleFocusChange(Window w, bool in);

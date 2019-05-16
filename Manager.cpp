@@ -9,19 +9,23 @@
 #include <algorithm>
 #include <math.h>
 #include <optional>
+#include <set>
+
+#define MEH (ShiftMask | ControlMask | Mod1Mask)
+#define NUMLOCK (Mod2Mask)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
 ///
-/// Super         + h,j,k,l | Move focus to other window
-/// Super + Shift + h,j,k,l | TODO
-/// Super + Alt   + h,j,k,l | Move window in grid on current monitor
-/// Super + Ctrl  + h,j,k,l | Move window to other monitor
+/// Meh         + h,j,k,l | Move focus to other window
+/// Meh + Shift + h,j,k,l | TODO
+/// Meh + Alt   + h,j,k,l | Move window in grid on current monitor
+/// Meh + Ctrl  + h,j,k,l | Move window to other monitor
 ///
-/// Super + D | Close the window that currently has focus
-/// Super + T | Open a terminal
-/// Super + M | Maximize the current window
-/// Super + N | Restore/unmaximize the current window
+/// Meh + D | Close the window that currently has focus
+/// Meh + T | Open a terminal
+/// Meh + M | Maximize the current window
+/// Meh + N | Restore/unmaximize the current window
 
 // Static error handler for XLib
 static int XError(Display* display, XErrorEvent* e) {
@@ -71,25 +75,13 @@ bool Manager::init()
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask | FocusChangeMask);
 
-    // Grab keys with Super/GUI modifier with and without NUMLOCK modifier
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L),   Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_Tab), Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_D),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_T),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_M),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_N),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_H),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_J),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_K),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
-    XGrabKey(_disp, XKeysymToKeycode(_disp, XK_L),   Mod2Mask | Mod4Mask, root, false, GrabModeAsync, GrabModeAsync);
+    // Grab keys with MEH modifier with and without NUMLOCK modifier
+    static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N,
+                                        XK_H, XK_J, XK_K, XK_L };
+    for (int key : KEYS) {
+      XGrabKey(_disp, XKeysymToKeycode(_disp, key), MEH          , root, false, GrabModeAsync, GrabModeAsync);
+      XGrabKey(_disp, XKeysymToKeycode(_disp, key), MEH | NUMLOCK, root, false, GrabModeAsync, GrabModeAsync);
+    }
 
     // Set the background
     XSetWindowBackground(_disp, root, 0x604020);
@@ -183,6 +175,10 @@ void Manager::run()
         break;
       case ButtonPress:
         onBtnPress(e.xbutton);
+        break;
+
+      case ClientMessage:
+        onClientMessage(e.xclient);
         break;
 
       default:
@@ -280,7 +276,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
   LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
             << " keyCode=" << e.keycode << " state=" << e.state;
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
   {
     LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
@@ -289,7 +285,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_T)))
   {
     LOG(INFO) << "got WIN-T window=" << e.window;
@@ -310,7 +306,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
        e.keycode == XKeysymToKeycode(_disp, XK_J) ||
        e.keycode == XKeysymToKeycode(_disp, XK_K) ||
@@ -338,7 +334,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_M)))
   {
     Window curFocus; int curRevert;
@@ -381,7 +377,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_N)))
   {
     Window curFocus; int curRevert;
@@ -410,7 +406,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if ((e.state & Mod4Mask) &&
+  if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_D)))
   {
     Window curFocus; int curRevert;
@@ -436,17 +432,24 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
 void Manager::onBtnPress(const XButtonEvent& e)
 {
-  LOG(INFO) << "btnPress window=" << e.window << " subwindow=" << e.subwindow << " " << e.state;
+  LOG(INFO) << "btnPress"
+            << " window=" << e.window
+            << " subwindow=" << e.subwindow
+            << " button=" << e.button
+            << " state=" << e.state;
 
   // Normal click
-  if (e.state == 0) {
-    switchFocus(e.window);
+  if (e.state == 0 || e.state == NUMLOCK) {
+    if (e.subwindow != 0)
+      switchFocus(e.subwindow);
+    else
+      switchFocus(e.window);
     _drag.w = 0;
     return;
   }
 
   // Alt-click
-  if (e.state & Mod4Mask) {
+  if (e.state & MEH) {
     switchFocus(e.window);
 
     _drag.btn = e.button;
@@ -481,6 +484,24 @@ void Manager::onBtnPress(const XButtonEvent& e)
   }
 }
 
+//TODO: Better handling of different ClientMessage types
+void Manager::onClientMessage(const XClientMessageEvent& e)
+{
+  char* str = XGetAtomName(e.display, e.message_type);
+  LOG(INFO) << "clientMessage"
+            << " window=" << e.window
+            << " serial=" << e.serial
+            << " send_event=" << e.send_event
+            << " display=" << e.display
+            << " message_type=" << e.message_type
+            << " format=" << e.format
+            << " data=(" << e.data.b << ")"
+            << " atom=(" << str << ")";
+  XFree(str);
+
+  LOG(INFO) << e.data.l[0] << " " << e.data.l[1] << " " << e.data.l[2] << " " << e.data.l[3] << " " << XGetAtomName(e.display, e.data.l[1]);
+}
+
 void Manager::switchFocus(Window w)
 {
   Window curFocus; int curRevert;
@@ -497,16 +518,18 @@ void Manager::handleFocusChange(Window w, bool in)
 {
   if (_screens.find(w) != end(_screens))
     return;
+
   if (!in) {
-    LOG(INFO) << "regrab window=" << w;
-    XGrabButton(_disp, 1, 0, w, false, ButtonPressMask,
+    LOG(INFO) << "focus out, regrab window=" << w;
+    XGrabButton(_disp, 1, 0, w, false, ButtonPressMask | ButtonReleaseMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-    XGrabButton(_disp, 1, Mod2Mask, w, false, ButtonPressMask,
+    XGrabButton(_disp, 1, NUMLOCK, w, false, ButtonPressMask | ButtonReleaseMask,
                 GrabModeAsync, GrabModeAsync, None, None);
     XSetWindowBorderWidth(_disp, w, 2);
   } else {
-    LOG(INFO) << "ungrab window=" << w;
+    LOG(INFO) << "focus in, ungrab window=" << w;
     XUngrabButton(_disp, 1, 0, w);
+    XUngrabButton(_disp, 1, NUMLOCK, w);
     XSetWindowBorderWidth(_disp, w, 5);
   }
 }
@@ -535,21 +558,21 @@ void Manager::addClient(Window w, bool checkIgn)
   XGrabButton(_disp, 1, 0, w, false,
               ButtonPressMask | ButtonReleaseMask,
               GrabModeAsync, GrabModeAsync, None, None);
-  XGrabButton(_disp, 1, Mod2Mask, w, false,
+  XGrabButton(_disp, 1, NUMLOCK, w, false,
               ButtonPressMask | ButtonReleaseMask,
               GrabModeAsync, GrabModeAsync, None, None);
 
   // For moving/resizing
-  XGrabButton(_disp, 1, Mod4Mask, w, false,
+  XGrabButton(_disp, 1, MEH, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
-  XGrabButton(_disp, 1, Mod2Mask | Mod4Mask, w, false,
+  XGrabButton(_disp, 1, NUMLOCK | MEH, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
-  XGrabButton(_disp, 3, Mod4Mask, w, false,
+  XGrabButton(_disp, 3, MEH, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
-  XGrabButton(_disp, 3, Mod2Mask | Mod4Mask, w, false,
+  XGrabButton(_disp, 3, NUMLOCK | MEH, w, false,
               ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
 
