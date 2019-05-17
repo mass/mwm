@@ -36,8 +36,10 @@ static int XError(Display* display, XErrorEvent* e) {
   char buf[1024];
   XGetErrorText(display, e->error_code, buf, sizeof(buf));
 
-  LOG(ERROR) << "X Error"
+  LOG(ERROR) << "X ERROR"
              << " display=" << DisplayString(display)
+             << " majorOpcode=" << GetXOpcodeStr(e->request_code)
+             << " minorOpcode=" << (int) e->minor_code
              << " what=(" << buf << ")";
   return 0;
 }
@@ -552,8 +554,10 @@ void Manager::addClient(Window w, bool checkIgn)
   XWindowAttributes attrs;
   XGetWindowAttributes(_disp, w, &attrs);
 
-  if (attrs.override_redirect)
-    return; //TODO: Is this right?
+  if (attrs.c_class == InputOnly || attrs.override_redirect) {
+    LOG(WARN) << "ignoring non-graphics window=" << w;
+    return;
+  }
 
   Client c;
   c.client = w;
