@@ -14,6 +14,10 @@
 #define MEH (ShiftMask | ControlMask | Mod1Mask)
 #define NUMLOCK (Mod2Mask)
 
+#define BORDER_THICK   5
+#define BORDER_FOCUS   0x005F87
+#define BORDER_UNFOCUS 0x181818
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
 ///
@@ -48,8 +52,10 @@ Manager::Manager(const std::string& display,
 
 Manager::~Manager()
 {
-  if (_disp != nullptr)
+  if (_disp != nullptr) {
     XCloseDisplay(_disp);
+    _disp = nullptr;
+  }
 }
 
 bool Manager::init()
@@ -361,7 +367,8 @@ void Manager::onKeyPress(const XKeyEvent& e)
     }
     auto& mon = *it2;
 
-    if (attr.width == mon.r.w && attr.height == mon.r.h) return;
+    if (attr.width == mon.r.w && attr.height == mon.r.h)
+      return;
 
     client.preMax.o.x = attr.x;
     client.preMax.o.y = attr.y;
@@ -371,8 +378,8 @@ void Manager::onKeyPress(const XKeyEvent& e)
     XWindowChanges changes;
     changes.x = mon.r.o.x;
     changes.y = mon.r.o.y;
-    changes.width = mon.r.w;
-    changes.height = mon.r.h;
+    changes.width = mon.r.w - (2 * BORDER_THICK);
+    changes.height = mon.r.h - (2 * BORDER_THICK);
     XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
     return;
   }
@@ -525,12 +532,12 @@ void Manager::handleFocusChange(Window w, bool in)
                 GrabModeAsync, GrabModeAsync, None, None);
     XGrabButton(_disp, 1, NUMLOCK, w, false, ButtonPressMask | ButtonReleaseMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-    XSetWindowBorderWidth(_disp, w, 2);
+    XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
   } else {
     LOG(INFO) << "focus in, ungrab window=" << w;
     XUngrabButton(_disp, 1, 0, w);
     XUngrabButton(_disp, 1, NUMLOCK, w);
-    XSetWindowBorderWidth(_disp, w, 5);
+    XSetWindowBorder(_disp, w, BORDER_FOCUS);
   }
 }
 
@@ -578,8 +585,8 @@ void Manager::addClient(Window w, bool checkIgn)
 
   XSelectInput(_disp, w, FocusChangeMask);
 
-  XSetWindowBorder(_disp, w, 0x005F87);
-  XSetWindowBorderWidth(_disp, w, 2);
+  XSetWindowBorderWidth(_disp, w, BORDER_THICK);
+  XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
 
   XMapWindow(_disp, w);
   LOG(INFO) << "added client=" << w;
