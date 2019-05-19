@@ -10,6 +10,7 @@
 #include <math.h>
 #include <optional>
 #include <set>
+#include <string.h>
 
 #define MEH (ShiftMask | ControlMask | Mod1Mask)
 #define NUMLOCK (Mod2Mask)
@@ -22,9 +23,9 @@
 /// Keyboard / Mouse Shortcuts
 ///
 /// Meh         + h,j,k,l | Move focus to other window
-/// Meh + Shift + h,j,k,l | TODO
-/// Meh + Alt   + h,j,k,l | Move window in grid on current monitor
-/// Meh + Ctrl  + h,j,k,l | Move window to other monitor
+/// Meh + Shift + h,j,k,l | TODO:
+/// Meh + Alt   + h,j,k,l | TODO: Move window in grid on current monitor
+/// Meh + Ctrl  + h,j,k,l | TODO: Move window to other monitor
 ///
 /// Meh + D | Close the window that currently has focus
 /// Meh + T | Open a terminal
@@ -74,7 +75,8 @@ bool Manager::init()
   LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << _numScreens;
 
   for (int i = 0; i < _numScreens; ++i) {
-    if (std::count(begin(_argScreens), end(_argScreens), i) == 0) continue;
+    if (std::count(begin(_argScreens), end(_argScreens), i) == 0)
+      continue;
 
     auto root = RootWindow(_disp, i);
     LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
@@ -143,6 +145,7 @@ void Manager::run()
   for (;;) {
     XEvent e;
     XNextEvent(_disp, &e);
+    //LOG(INFO) << "type=" << ToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
 
     switch (e.type) {
       // Ignore these events
@@ -200,21 +203,51 @@ void Manager::run()
 void Manager::onReq_Map(const XMapRequestEvent& e)
 {
   LOG(INFO) << "request=Map window=" << e.window;
+
+  if (e.serial <= _lastMapSerial) {
+    LOG(WARN) << "ignoring repeated map request window=" << e.window;
+    return;
+  }
+
   addClient(e.window, false);
+
+  _lastMapSerial = e.serial;
 }
 
 void Manager::onReq_Configure(const XConfigureRequestEvent& e)
 {
   LOG(INFO) << "request=Configure window=" << e.window;
 
-  XWindowChanges changes;
-  changes.x = e.x;
-  changes.y = e.y;
-  changes.width = e.width;
-  changes.height = e.height;
-  changes.border_width = e.border_width;
+  if (e.serial <= _lastConfigureSerial) {
+    LOG(WARN) << "ignoring repeated configure request window=" << e.window;
+    return;
+  }
 
-  XConfigureWindow(_disp, e.window, (unsigned) e.value_mask, &changes);
+  XWindowChanges changes;
+  bzero(&changes, sizeof(changes));
+
+  unsigned changeMask = 0;
+
+  if (e.value_mask & CWX) {
+    changes.x = e.x;
+    changeMask |= CWX;
+  }
+  if (e.value_mask & CWY) {
+    changes.y = e.y;
+    changeMask |= CWY;
+  }
+  if (e.value_mask & CWWidth) {
+    changes.width = e.width;
+    changeMask |= CWWidth;
+  }
+  if (e.value_mask & CWHeight) {
+    changes.height = e.height;
+    changeMask |= CWHeight;
+  }
+
+  XConfigureWindow(_disp, e.window, changeMask, &changes);
+
+  _lastConfigureSerial = e.serial;
 }
 
 void Manager::onNot_Unmap(const XUnmapEvent& e)

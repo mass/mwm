@@ -137,6 +137,8 @@ class Manager
     std::map<Window /*client*/, Client> _clients;
     std::map<Window /*root*/, ScreenInfo> _screens;
     Drag _drag;
+    uint64_t _lastConfigureSerial = 0;
+    uint64_t _lastMapSerial = 0;
 };
 
 static inline Point getCenter(int x, int y, int w, int h)
