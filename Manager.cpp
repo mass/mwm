@@ -7,6 +7,7 @@
 #include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
+#include <cassert>
 #include <math.h>
 #include <optional>
 #include <set>
@@ -317,15 +318,37 @@ void Manager::onKeyPress(const XKeyEvent& e)
   LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
             << " keyCode=" << e.keycode << " state=" << e.state;
 
+  // Toggle window explorer mode
   if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
   {
-    LOG(INFO) << "got ALT-TAB window=" << e.window << " subwindow=" << e.subwindow;
-    if (e.subwindow != 0)
-      XRaiseWindow(_disp, e.subwindow);
+    std::map<const Monitor*, std::vector<const Client*>> foo;
+    for (const auto& client : _clients) {
+      const auto& screen = _screens.at(client.second.root);
+      auto center = client.second.getRect(_disp).getCenter();
+
+      auto i_min = std::min_element(begin(screen.monitors), end(screen.monitors),
+          [&center] (const Monitor& a, const Monitor& b) {
+              return getDist(center, a.r.getCenter()) < getDist(center, b.r.getCenter());
+          });
+      assert(i_min != end(screen.monitors));
+      foo[&(*i_min)].push_back(&(client.second));
+    }
+
+    for (const auto& monitor : foo) {
+      LOG(INFO) << "monitor name=" << monitor.first->name << " num=" << monitor.second.size();
+      for (const auto* client : monitor.second)
+        LOG(INFO) << "    client window=" << client->client << " root=" << client->root;
+    }
+
+    //TODO: Calculate new coordinates for all clients on a monitor
+    //TODO: Save old position of each client and move them to new coordinates
+    //TODO: On click on a client, send all *other* clients back to their old position
+
     return;
   }
 
+  // Start a new terminal window
   if ((e.state & MEH) &&
       (e.keycode == XKeysymToKeycode(_disp, XK_T)))
   {

@@ -3,6 +3,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 
+#include <cmath>
 #include <limits.h>
 #include <map>
 #include <vector>
@@ -47,7 +48,7 @@ struct Rect
            (a.y >= o.y && a.y <= o.y + h);
   }
 
-  inline Point getCenter()
+  inline Point getCenter() const
   {
     Point c(o);
     c.x += (w/2);
@@ -78,7 +79,7 @@ struct Client
 
   bool ign;
 
-  inline Rect getRect(Display* disp) {
+  inline Rect getRect(Display* disp) const {
     return {client, disp};
   }
 };
@@ -171,6 +172,14 @@ static inline int getDist(Point a, Point b, DIR dir)
   if (dist < 0) dist = INT_MAX;
 
   return dist;
+}
+
+static inline double getDist(Point a, Point b)
+{
+  // C^2 = A^2 + B^2
+  double w = b.x - a.x;
+  double h = b.y - a.y;
+  return sqrt((w*w) + (h*h));
 }
 
 static inline const char* ToString(const XEvent& e)
