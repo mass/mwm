@@ -1,6 +1,6 @@
 #include "Manager.hpp"
 
-#include <mass/Log.hpp>
+#include "Log.hpp"
 
 #include <X11/Xutil.h>
 #include <X11/cursorfont.h>

@@ -9,16 +9,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wconversion")
 
 # Locate libraries
-FIND_LIBRARY(L_MASS libmass.so "../libmass/build")
 FIND_PACKAGE(X11 REQUIRED)
 
 set(SOURCES mwm.cpp Manager.cpp)
 
-INCLUDE_DIRECTORIES("../libmass/include")
 INCLUDE_DIRECTORIES(${X11_INCLUDE_DIR} ${X11_Xrandr_INCLUDE_PATH})
 
 ADD_EXECUTABLE(mwm ${SOURCES})
 
-
 # Link libraries
-TARGET_LINK_LIBRARIES(mwm ${L_MASS} ${X11_LIBRARIES} ${X11_Xrandr_LIB})
+TARGET_LINK_LIBRARIES(mwm ${X11_LIBRARIES} ${X11_Xrandr_LIB})
