@@ -1,25 +1,27 @@
 #include "Manager.hpp"
 
 #include "Log.hpp"
+#include "XUtils.hpp"
 
-#include <X11/Xutil.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
-#include <cassert>
-#include <math.h>
-#include <optional>
 #include <set>
 #include <string.h>
 
-#define UNUSED(x) ((void)x)
-
 #define NUMLOCK (Mod2Mask)
+
+#define BACKGROUND 0x604020
 
 #define BORDER_THICK   5
 #define BORDER_FOCUS   0x005F87
 #define BORDER_UNFOCUS 0x181818
+
+#define GRID_THICK 1
+#define GRID_INACT 0x880000
+#define GRID_COLOR 0x005F87
+#define GRID_BG    0x181818
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
@@ -33,6 +35,12 @@
 /// Numlock + T | Open a terminal
 /// Numlock + M | Maximize the current window
 /// Numlock + N | Restore/unmaximize the current window
+/// Numlock + G | Open grid building mode
+///
+/// Grid Building Mode
+/// j,k             | Decrement/increment vertical grid count
+/// h,l             | Decrement/increment horizontal grid count
+/// Shift + h,j,k,l | Move focus to other monitor
 
 // Static error handler for XLib
 static int XError(Display* display, XErrorEvent* e) {
@@ -51,9 +59,7 @@ Manager::Manager(const std::string& display,
                  const std::vector<int>& screens)
   : _argDisp(display)
   , _argScreens(screens)
-{
-  _drag.w = 0;
-}
+{}
 
 Manager::~Manager()
 {
@@ -73,28 +79,22 @@ bool Manager::init()
     return false;
   }
 
-  _numScreens = ScreenCount(_disp);
-  LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << _numScreens;
+  auto numScreens = ScreenCount(_disp);
+  LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << numScreens;
 
-  for (int i = 0; i < _numScreens; ++i) {
+  for (int i = 0; i < numScreens; ++i) {
     if (std::count(begin(_argScreens), end(_argScreens), i) == 0)
       continue;
 
     auto root = RootWindow(_disp, i);
     LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
-    ScreenInfo s;
-    s.num = i;
+    _roots[root] = i;
 
-    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | ButtonPressMask | FocusChangeMask);
-
-    // Grab keys with NUMLOCK modifier
-    static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N,
-                                        XK_H, XK_J, XK_K, XK_L };
-    for (int key : KEYS)
-      XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, root, false, GrabModeAsync, GrabModeAsync);
+    XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask |
+                              KeyPressMask | ButtonPressMask | FocusChangeMask);
 
     // Set the background
-    XSetWindowBackground(_disp, root, 0x604020);
+    XSetWindowBackground(_disp, root, BACKGROUND);
     XClearWindow(_disp, root);
 
     // Less ugly cursor
@@ -105,7 +105,8 @@ bool Manager::init()
     XRRScreenResources* res = XRRGetScreenResourcesCurrent(_disp, root);
     for (int j = 0; j < res->noutput; ++j) {
       XRROutputInfo* monitor = XRRGetOutputInfo(_disp, res, res->outputs[j]);
-      if (monitor->connection) continue; // No monitor plugged in
+      if (monitor->connection)
+        continue; // No monitor plugged in
       XRRCrtcInfo* crtc = XRRGetCrtcInfo(_disp, res, monitor->crtc);
       LOG(INFO) << "found monitor for"
                 << " screen=" << i
@@ -120,23 +121,74 @@ bool Manager::init()
       m.r.w = crtc->width;
       m.r.h = crtc->height;
       m.name = monitor->name;
-      s.monitors.push_back(m);
+      m.root = root;
+      m.gridDraw = 0;
+      m.gridX = 1;
+      m.gridY = 1;
+      _monitors.push_back(m);
     }
-
-    _screens.insert({root, s});
 
     // Add pre-existing windows on this screen
     XGrabServer(_disp);
     Window root2, parent; Window* children; uint32_t num;
     XQueryTree(_disp, root, &root2, &parent, &children, &num);
-    for (uint32_t j = 0; j < num; ++j) {
+    for (uint32_t j = 0; j < num; ++j)
       addClient(children[j], true);
-    }
     XFree(children);
     XUngrabServer(_disp);
   }
 
   return true;
+}
+
+void Manager::addClient(Window w, bool checkIgn)
+{
+  auto it = _clients.find(w);
+  if (it != end(_clients)) {
+    LOG(ERROR) << "window=" << w << " is already framed!";
+    return;
+  }
+
+  XWindowAttributes attrs;
+  XGetWindowAttributes(_disp, w, &attrs);
+
+  if (attrs.c_class == InputOnly || attrs.override_redirect) {
+    LOG(WARN) << "ignoring non-graphics window=" << w;
+    return;
+  }
+
+  Client c;
+  c.client = w;
+  c.root = GetWinRoot(_disp, w);
+  c.ign = checkIgn && (attrs.override_redirect || (attrs.map_state != IsViewable));
+  _clients.insert({w, c});
+
+  // For selecting focus
+  XGrabButton(_disp, 1, 0, w, false,
+              ButtonPressMask | ButtonReleaseMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+
+  // For moving/resizing
+  XGrabButton(_disp, 1, NUMLOCK, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+  XGrabButton(_disp, 3, NUMLOCK, w, false,
+              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              GrabModeAsync, GrabModeAsync, None, None);
+
+  // Grab keys with NUMLOCK modifier
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N,
+                                      XK_H, XK_J, XK_K, XK_L, XK_G };
+  for (int key : KEYS)
+    XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
+
+  XSelectInput(_disp, w, FocusChangeMask);
+
+  XSetWindowBorderWidth(_disp, w, BORDER_THICK);
+  XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
+
+  XMapWindow(_disp, w);
+  LOG(INFO) << "added client=" << w;
 }
 
 void Manager::run()
@@ -162,23 +214,23 @@ void Manager::run()
       case MapRequest:
         onReq_Map(e.xmaprequest);
         break;
+      case UnmapNotify:
+        onNot_Unmap(e.xunmap);
+        break;
       case ConfigureRequest:
         onReq_Configure(e.xconfigurerequest);
         break;
 
-      case UnmapNotify:
-        onNot_Unmap(e.xunmap);
-        break;
       case MotionNotify:
         while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
         onNot_Motion(e.xbutton);
         break;
 
       case FocusIn:
-        handleFocusChange(e.xfocus.window, true);
+        handleFocusChange(e.xfocus, true);
         break;
       case FocusOut:
-        handleFocusChange(e.xfocus.window, false);
+        handleFocusChange(e.xfocus, false);
         break;
 
       case KeyPress:
@@ -200,6 +252,8 @@ void Manager::run()
   }
 }
 
+/// X Event Handlers ///////////////////////////////////////////////////////////
+
 void Manager::onReq_Map(const XMapRequestEvent& e)
 {
   LOG(INFO) << "request=Map window=" << e.window;
@@ -212,6 +266,17 @@ void Manager::onReq_Map(const XMapRequestEvent& e)
   addClient(e.window, false);
 
   _lastMapSerial = e.serial;
+}
+
+void Manager::onNot_Unmap(const XUnmapEvent& e)
+{
+  LOG(INFO) << "notify=Unmap window=" << e.window;
+
+  auto it = _clients.find(e.window);
+  if (it != end(_clients)) {
+    _clients.erase(it);
+    LOG(INFO) << "deleted client=" << e.window;
+  }
 }
 
 void Manager::onReq_Configure(const XConfigureRequestEvent& e)
@@ -250,19 +315,10 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
   _lastConfigureSerial = e.serial;
 }
 
-void Manager::onNot_Unmap(const XUnmapEvent& e)
-{
-  LOG(INFO) << "notify=Unmap window=" << e.window;
-
-  auto it = _clients.find(e.window);
-  if (it != end(_clients)) {
-    delClient(it->second);
-  }
-}
-
 void Manager::onNot_Motion(const XButtonEvent& e)
 {
-  if (_drag.w == 0) return;
+  if (_drag.w == 0)
+    return;
 
   auto client = _drag.w;
   if (_clients.find(client) == end(_clients)) {
@@ -314,183 +370,43 @@ void Manager::onNot_Motion(const XButtonEvent& e)
 
 void Manager::onKeyPress(const XKeyEvent& e)
 {
-  LOG(INFO) << "keyPress window=" << e.window << " subwindow=" << e.subwindow
-            << " keyCode=" << e.keycode << " state=" << e.state;
+  LOG(INFO) << "keyPress"
+            << " window=" << e.window
+            << " subwindow=" << e.subwindow
+            << " keyCode=" << e.keycode
+            << " state=" << e.state;
 
-  // Toggle window explorer mode
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_Tab)))
-  {
-    std::map<const Monitor*, std::vector<const Client*>> foo;
-    for (const auto& client : _clients) {
-      const auto& screen = _screens.at(client.second.root);
-      auto center = client.second.getRect(_disp).getCenter();
-
-      auto i_min = std::min_element(begin(screen.monitors), end(screen.monitors),
-          [&center] (const Monitor& a, const Monitor& b) {
-              return getDist(center, a.r.getCenter()) < getDist(center, b.r.getCenter());
-          });
-      assert(i_min != end(screen.monitors));
-      foo[&(*i_min)].push_back(&(client.second));
-    }
-
-    for (const auto& monitor : foo) {
-      LOG(INFO) << "monitor name=" << monitor.first->name << " num=" << monitor.second.size();
-      for (const auto* client : monitor.second)
-        LOG(INFO) << "    client window=" << client->client << " root=" << client->root;
-    }
-
-    //TODO: Calculate new coordinates for all clients on a monitor
-    //TODO: Save old position of each client and move them to new coordinates
-    //TODO: On click on a client, send all *other* clients back to their old position
-
+  if (_gridActive) {
+    onKeyGridActive(e);
     return;
   }
 
-  // Start a new terminal window
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_T)))
-  {
-    LOG(INFO) << "got WIN-T window=" << e.window;
-
-    auto it = _screens.find(e.window);
-    if (it == end(_screens)) {
-      LOG(ERROR) << "can't find root=" << e.window;
-      return;
-    }
-    int screen = it->second.num;
-    LOG(INFO) << "root=" << e.window << " screen=" << screen;
-
-    std::ostringstream cmd;
-    cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen;
-    cmd << " terminator -m &";
-    LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
-    system(cmd.str().c_str());
+  if (!(e.state & NUMLOCK)) {
+    if (_roots.find(e.window) == _roots.end())
+      LOG(ERROR) << "captured non-modifier keyPress keyCode=" << e.keycode;
     return;
   }
 
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
-       e.keycode == XKeysymToKeycode(_disp, XK_J) ||
-       e.keycode == XKeysymToKeycode(_disp, XK_K) ||
-       e.keycode == XKeysymToKeycode(_disp, XK_L)))
-  {
-    DIR dir;
-    if (e.keycode == XKeysymToKeycode(_disp, XK_H)) {
-      dir = DIR::Left;
-    } else if(e.keycode == XKeysymToKeycode(_disp, XK_J)) {
-      dir = DIR::Down;
-    } else if(e.keycode == XKeysymToKeycode(_disp, XK_K)) {
-      dir = DIR::Up;
-    } else if(e.keycode == XKeysymToKeycode(_disp, XK_L)) {
-      dir = DIR::Right;
-    }
-
-    Window curFocus; int curRevert;
-    XGetInputFocus(_disp, &curFocus, &curRevert);
-    if (_clients.find(curFocus) == end(_clients)) {
-      curFocus = getRoot(curFocus);
-    }
-
-    Window nextFocus = getNextWindowInDir(dir, curFocus);
-    switchFocus(nextFocus);
-    return;
-  }
-
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_M)))
-  {
-    Window curFocus; int curRevert;
-    XGetInputFocus(_disp, &curFocus, &curRevert);
-
-    auto it = _clients.find(curFocus);
-    if (it == end(_clients)) {
-      LOG(ERROR) << "can't find client=" << e.subwindow;
-      return;
-    }
-    auto& client = it->second;
-    if (client.ign) return;
-
-    XWindowAttributes attr;
-    XGetWindowAttributes(_disp, client.client, &attr);
-    Point c = getCenter(attr.x, attr.y, attr.width, attr.height);
-
-    const auto& monitors = _screens[client.root].monitors;
-    auto it2 = std::find_if(begin(monitors), end(monitors),
-                            [c] (const auto& m) { return m.r.contains(c); });
-    if (it2 == end(monitors)) {
-      LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
-      return;
-    }
-    auto& mon = *it2;
-
-    if (attr.width == mon.r.w && attr.height == mon.r.h)
-      return;
-
-    client.preMax.o.x = attr.x;
-    client.preMax.o.y = attr.y;
-    client.preMax.w = attr.width;
-    client.preMax.h = attr.height;
-
-    XWindowChanges changes;
-    changes.x = mon.r.o.x;
-    changes.y = mon.r.o.y;
-    changes.width = mon.r.w - (2 * BORDER_THICK);
-    changes.height = mon.r.h - (2 * BORDER_THICK);
-    XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
-    return;
-  }
-
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_N)))
-  {
-    Window curFocus; int curRevert;
-    XGetInputFocus(_disp, &curFocus, &curRevert);
-
-    auto it = _clients.find(curFocus);
-    if (it == end(_clients)) {
-      LOG(ERROR) << "can't find client=" << e.subwindow;
-      return;
-    }
-    auto& client = it->second;
-    if (client.ign) return;
-
-    if (client.preMax.w == 0 || client.preMax.h == 0) return;
-
-    XWindowChanges changes;
-    changes.x = client.preMax.o.x;
-    changes.y = client.preMax.o.y;
-    changes.width = client.preMax.w;
-    changes.height = client.preMax.h;
-
-    client.preMax.w = 0;
-    client.preMax.h = 0;
-
-    XConfigureWindow(_disp, client.client, CWX | CWY | CWWidth | CWHeight, &changes);
-    return;
-  }
-
-  if ((e.state & NUMLOCK) &&
-      (e.keycode == XKeysymToKeycode(_disp, XK_D)))
-  {
-    Window curFocus; int curRevert;
-    XGetInputFocus(_disp, &curFocus, &curRevert);
-
-    XEvent event;
-    event.xclient.type = ClientMessage;
-    event.xclient.window = curFocus;
-    event.xclient.message_type = XInternAtom(_disp, "WM_PROTOCOLS", true);
-    event.xclient.format = 32;
-    event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
-    event.xclient.data.l[1] = CurrentTime;
-    XSendEvent(_disp, curFocus, false, NoEventMask, &event);
-
-    std::vector<std::pair<Rect, Window>> windows;
-    for (auto& c : _clients)
-      if (c.first != curFocus && !c.second.ign)
-        windows.emplace_back(c.second.getRect(_disp), c.first);
-    switchFocus(closestRectFromPoint(Rect(curFocus, _disp).getCenter(), windows));
-    return;
+  if (e.keycode == XKeysymToKeycode(_disp, XK_Tab))
+    onKeyWinExplorer(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_T))
+    onKeyTerminal(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_G))
+    onKeyGrid(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_J) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_K) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_L))
+    onKeyMoveFocus(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_M))
+    onKeyMaximize(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_N))
+    onKeyUnmaximize(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_D))
+    onKeyClose(e);
+  else {
+    if (_roots.find(e.window) == _roots.end())
+      LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
   }
 }
 
@@ -508,7 +424,7 @@ void Manager::onBtnPress(const XButtonEvent& e)
       switchFocus(e.subwindow);
     else
       switchFocus(e.window);
-    _drag.w = 0;
+    _drag = {};
     return;
   }
 
@@ -563,8 +479,12 @@ void Manager::onClientMessage(const XClientMessageEvent& e)
             << " atom=(" << str << ")";
   XFree(str);
 
-  LOG(INFO) << e.data.l[0] << " " << e.data.l[1] << " " << e.data.l[2] << " " << e.data.l[3] << " " << XGetAtomName(e.display, e.data.l[1]);
+  LOG(INFO) << e.data.l[0] << " " << e.data.l[1] << " "
+            << e.data.l[2] << " " << e.data.l[3] << " "
+            << XGetAtomName(e.display, e.data.l[1]);
 }
+
+/// Focus Handlers /////////////////////////////////////////////////////////////
 
 void Manager::switchFocus(Window w)
 {
@@ -574,95 +494,342 @@ void Manager::switchFocus(Window w)
   if (curFocus == w)
     return;
 
+  LOG(INFO) << "switching focus from current=" << curFocus << " new=" << w;
   XSetInputFocus(_disp, w, RevertToPointerRoot, CurrentTime);
   XRaiseWindow(_disp, w);
 }
 
-void Manager::handleFocusChange(Window w, bool in)
+void Manager::handleFocusChange(const XFocusChangeEvent& e, bool in)
 {
-  if (_screens.find(w) != end(_screens))
+  if (e.mode == NotifyGrab || e.mode == NotifyUngrab)
     return;
+
+  //TODO: Clean
+  if (_gridActive) {
+    auto it = std::find_if(begin(_monitors), end(_monitors),
+        [&] (const auto& m) { return m.gridDraw == e.window; });
+    if (it == end(_monitors)) {
+      LOG(ERROR) << "invalid window keypress in grid build mode";
+      return;
+    }
+    auto* mon = &(*it);
+    XClearWindow(_disp, mon->gridDraw);
+    XSetWindowBorder(_disp, mon->gridDraw, in ? GRID_COLOR : GRID_INACT);
+    XGCValues values;
+    GC gc = XCreateGC(_disp, mon->gridDraw, 0, &values);
+    XSetForeground(_disp, gc, in ? GRID_COLOR : GRID_INACT);
+    XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
+    for (unsigned i = 0; i < mon->gridX - 1; ++i) {
+      int x = ((i+1) * (mon->r.w / mon->gridX));
+      XDrawLine(_disp, mon->gridDraw, gc, x, 0, x, mon->r.h);
+    }
+    for (unsigned i = 0; i < mon->gridY - 1; ++i) {
+      int y = ((i+1) * (mon->r.h / mon->gridY));
+      XDrawLine(_disp, mon->gridDraw, gc, 0, y, mon->r.w, y);
+    }
+    return;
+  }
+
+  if (_clients.find(e.window) == end(_clients))
+      return;
 
   if (!in) {
-    LOG(INFO) << "focus out, regrab window=" << w;
-    XGrabButton(_disp, 1, 0, w, false, ButtonPressMask | ButtonReleaseMask,
+    LOG(INFO) << "focus out, regrab window=" << e.window;
+    XGrabButton(_disp, 1, 0, e.window, false, ButtonPressMask | ButtonReleaseMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-    XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
+    XSetWindowBorder(_disp, e.window, BORDER_UNFOCUS);
   } else {
-    LOG(INFO) << "focus in, ungrab window=" << w;
-    XUngrabButton(_disp, 1, 0, w);
-    XSetWindowBorder(_disp, w, BORDER_FOCUS);
+    LOG(INFO) << "focus in, ungrab window=" << e.window;
+    XUngrabButton(_disp, 1, 0, e.window);
+    XSetWindowBorder(_disp, e.window, BORDER_FOCUS);
+    _lastFocus = e.window;
   }
 }
 
-void Manager::addClient(Window w, bool checkIgn)
+/// Key Press Handlers /////////////////////////////////////////////////////////
+
+//TODO: Clean
+void Manager::onKeyGridActive(const XKeyEvent& e)
 {
-  auto it = _clients.find(w);
-  if (it != end(_clients)) {
-    LOG(ERROR) << "window=" << w << " is already framed!";
+  if (e.keycode == XKeysymToKeycode(_disp, XK_G)) {
+    _gridActive = false;
+    switchFocus(_lastFocus);
+    for (const auto& monitor : _monitors)
+      XUnmapWindow(_disp, monitor.gridDraw);
     return;
   }
 
-  XWindowAttributes attrs;
-  XGetWindowAttributes(_disp, w, &attrs);
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+      [&] (const Monitor& m) { return m.gridDraw == e.window; });
+  if (it == end(_monitors)) {
+    LOG(ERROR) << "invalid window keypress in grid build mode";
+    return;
+  }
+  auto* mon = &(*it);
 
-  if (attrs.c_class == InputOnly || attrs.override_redirect) {
-    LOG(WARN) << "ignoring non-graphics window=" << w;
+  if (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
+      e.keycode == XKeysymToKeycode(_disp, XK_J) ||
+      e.keycode == XKeysymToKeycode(_disp, XK_K) ||
+      e.keycode == XKeysymToKeycode(_disp, XK_L)) {
+    if (e.state & ShiftMask) {
+      DIR dir;
+      if (e.keycode == XKeysymToKeycode(_disp, XK_H)) {
+        dir = DIR::Left;
+      } else if(e.keycode == XKeysymToKeycode(_disp, XK_J)) {
+        dir = DIR::Down;
+      } else if(e.keycode == XKeysymToKeycode(_disp, XK_K)) {
+        dir = DIR::Up;
+      } else if(e.keycode == XKeysymToKeycode(_disp, XK_L)) {
+        dir = DIR::Right;
+      }
+
+      Monitor* m = getNextMonitorInDir(dir, mon);
+      if (m != mon)
+        switchFocus(m->gridDraw);
+    } else {
+      if (e.keycode == XKeysymToKeycode(_disp, XK_J))
+        mon->gridY = (mon->gridY == 1) ? 1 : mon->gridY - 1;
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
+        mon->gridY++;
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_H))
+        mon->gridX = (mon->gridX == 1) ? 1 : mon->gridX - 1;
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
+        mon->gridX++;
+
+      XClearWindow(_disp, mon->gridDraw);
+
+      XGCValues values;
+      GC gc = XCreateGC(_disp, mon->gridDraw, 0, &values);
+      XSetForeground(_disp, gc, GRID_COLOR);
+      XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
+      for (unsigned i = 0; i < mon->gridX - 1; ++i) {
+        int x = ((i+1) * (mon->r.w / mon->gridX));
+        XDrawLine(_disp, mon->gridDraw, gc, x, 0, x, mon->r.h);
+      }
+      for (unsigned i = 0; i < mon->gridY - 1; ++i) {
+        int y = ((i+1) * (mon->r.h / mon->gridY));
+        XDrawLine(_disp, mon->gridDraw, gc, 0, y, mon->r.w, y);
+      }
+    }
     return;
   }
 
-  Client c;
-  c.client = w;
-  c.root = getRoot(w);
-  c.ign = checkIgn && (attrs.override_redirect || (attrs.map_state != IsViewable));
-  _clients.insert({w, c});
-
-  // For selecting focus
-  XGrabButton(_disp, 1, 0, w, false,
-              ButtonPressMask | ButtonReleaseMask,
-              GrabModeAsync, GrabModeAsync, None, None);
-
-  // For moving/resizing
-  XGrabButton(_disp, 1, NUMLOCK, w, false,
-              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
-              GrabModeAsync, GrabModeAsync, None, None);
-  XGrabButton(_disp, 3, NUMLOCK, w, false,
-              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
-              GrabModeAsync, GrabModeAsync, None, None);
-
-  XSelectInput(_disp, w, FocusChangeMask);
-
-  XSetWindowBorderWidth(_disp, w, BORDER_THICK);
-  XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
-
-  XMapWindow(_disp, w);
-  LOG(INFO) << "added client=" << w;
+  LOG(ERROR) << "invalid window keypress in grid build mode";
 }
 
-void Manager::delClient(Client& c)
+void Manager::onKeyWinExplorer(const XKeyEvent& /*e*/)
 {
-  _clients.erase(c.client);
-  LOG(INFO) << "deleted client=" << c.client;
+  //TODO: Calculate new coordinates for all clients on a monitor
+  //TODO: Save old position of each client and move them to new coordinates
+  //TODO: On click on a client, send all *other* clients back to their old position
 }
 
-Window Manager::getRoot(Window w)
+void Manager::onKeyTerminal(const XKeyEvent& e)
 {
-  Window root, parent;
-  Window* children;
-  uint32_t num;
+  LOG(INFO) << "launching terminal window=" << e.window;
 
-  XQueryTree(_disp, w, &root, &parent, &children, &num);
+  int screen;
+  auto it = _clients.find(e.window);
+  if (it != end(_clients))
+    screen = _roots.at(it->second.root);
+  else {
+    auto it2 = _roots.find(e.window);
+    if (it2 == end(_roots)) {
+      LOG(ERROR) << "unable to find window=" << e.window;
+      return;
+    }
+    screen = it2->second;
+  }
 
-  return root;
+  std::ostringstream cmd;
+  cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen << " ";
+  cmd << "st &";
+  LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
+  system(cmd.str().c_str());
 }
 
+//TODO: Clean
+void Manager::onKeyGrid(const XKeyEvent& e)
+{
+  LOG(INFO) << "activating grid building mode window=" << e.window;
+
+  _gridActive = true;
+  //TODO: Disable all other features / focus / keys / etc.
+
+  for (auto& monitor : _monitors) {
+    auto gridDraw = XCreateSimpleWindow(_disp, monitor.root,
+        monitor.r.o.x, monitor.r.o.y,
+        monitor.r.w - 2*GRID_THICK, monitor.r.h - 2*GRID_THICK,
+        GRID_THICK, GRID_COLOR, GRID_BG);
+    monitor.gridDraw = gridDraw;
+
+    static const std::set<int> KEYS = { XK_H, XK_J, XK_K, XK_L, XK_G };
+    for (int key : KEYS) {
+      XGrabKey(_disp, XKeysymToKeycode(_disp, key), 0, gridDraw, false, GrabModeAsync, GrabModeAsync);
+      XGrabKey(_disp, XKeysymToKeycode(_disp, key), ShiftMask, gridDraw, false, GrabModeAsync, GrabModeAsync);
+    }
+
+    XSelectInput(_disp, gridDraw, FocusChangeMask);
+    XMapWindow(_disp, gridDraw);
+    switchFocus(gridDraw);
+
+    XGCValues values;
+    GC gc = XCreateGC(_disp, gridDraw, 0, &values);
+    XSetForeground(_disp, gc, GRID_COLOR);
+    XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
+    for (unsigned i = 0; i < monitor.gridX - 1; ++i) {
+      int x = ((i+1) * (monitor.r.w / monitor.gridX));
+      XDrawLine(_disp, gridDraw, gc, x, 0, x, monitor.r.h);
+    }
+    for (unsigned i = 0; i < monitor.gridY - 1; ++i) {
+      int y = ((i+1) * (monitor.r.h / monitor.gridY));
+      XDrawLine(_disp, gridDraw, gc, 0, y, monitor.r.w, y);
+    }
+  }
+}
+
+void Manager::onKeyMoveFocus(const XKeyEvent& e)
+{
+  DIR dir;
+  if (e.keycode == XKeysymToKeycode(_disp, XK_H))
+    dir = DIR::Left;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_J))
+    dir = DIR::Down;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
+    dir = DIR::Up;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
+    dir = DIR::Right;
+
+  Window curFocus; int curRevert;
+  XGetInputFocus(_disp, &curFocus, &curRevert);
+  if (_clients.find(curFocus) == end(_clients))
+    curFocus = GetWinRoot(_disp, curFocus);
+
+  Window nextFocus = getNextWindowInDir(dir, curFocus);
+  switchFocus(nextFocus);
+}
+
+void Manager::onKeyMaximize(const XKeyEvent& e)
+{
+  Window curFocus; int curRevert;
+  XGetInputFocus(_disp, &curFocus, &curRevert);
+
+  auto it = _clients.find(curFocus);
+  if (it == end(_clients)) {
+    LOG(ERROR) << "unable to find client=" << e.subwindow;
+    return;
+  }
+  auto& client = it->second;
+  if (client.ign)
+    return;
+
+  LOG(INFO) << "maximizing"
+            << " curFocus=" << curFocus
+            << " window=" << e.window
+            << " subwindow=" << e.subwindow;
+
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, client.client, &attr);
+  Point c = Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
+
+  auto it2 = std::find_if(begin(_monitors), end(_monitors),
+                          [c] (const auto& m) { return m.r.contains(c); });
+  if (it2 == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
+    return;
+  }
+  auto& mon = *it2;
+
+  auto nw = mon.r.w - (2 * BORDER_THICK);
+  auto nh = mon.r.h - (2 * BORDER_THICK);
+
+  if (attr.width == nw && attr.height == nh)
+    return;
+
+  client.preMax.o.x = attr.x;
+  client.preMax.o.y = attr.y;
+  client.preMax.w = attr.width;
+  client.preMax.h = attr.height;
+
+  XWindowChanges changes;
+  changes.x = mon.r.o.x;
+  changes.y = mon.r.o.y;
+  changes.width = nw;
+  changes.height = nh;
+  XConfigureWindow(_disp, client.client, (CWX | CWY | CWWidth | CWHeight), &changes);
+}
+
+void Manager::onKeyUnmaximize(const XKeyEvent& e)
+{
+  Window curFocus; int curRevert;
+  XGetInputFocus(_disp, &curFocus, &curRevert);
+
+  auto it = _clients.find(curFocus);
+  if (it == end(_clients)) {
+    LOG(ERROR) << "unable to find client=" << e.subwindow;
+    return;
+  }
+  auto& client = it->second;
+  if (client.ign)
+    return;
+
+  LOG(INFO) << "unmaximizing"
+            << " curFocus=" << curFocus
+            << " window=" << e.window
+            << " subwindow=" << e.subwindow;
+
+  if (client.preMax.w == 0 || client.preMax.h == 0)
+    return;
+
+  XWindowChanges changes;
+  changes.x = client.preMax.o.x;
+  changes.y = client.preMax.o.y;
+  changes.width = client.preMax.w;
+  changes.height = client.preMax.h;
+
+  client.preMax.w = 0;
+  client.preMax.h = 0;
+
+  XConfigureWindow(_disp, client.client, (CWX | CWY | CWWidth | CWHeight), &changes);
+}
+
+void Manager::onKeyClose(const XKeyEvent& e)
+{
+  Window curFocus; int curRevert;
+  XGetInputFocus(_disp, &curFocus, &curRevert);
+  auto center = GetWinRect(_disp, curFocus).getCenter();
+
+  LOG(INFO) << "closing window"
+            << " curFocus=" << curFocus
+            << " window=" << e.window
+            << " subwindow=" << e.subwindow;
+
+  XEvent event;
+  event.xclient.type = ClientMessage;
+  event.xclient.window = curFocus;
+  event.xclient.message_type = XInternAtom(_disp, "WM_PROTOCOLS", true);
+  event.xclient.format = 32;
+  event.xclient.data.l[0] = XInternAtom(_disp, "WM_DELETE_WINDOW", false);
+  event.xclient.data.l[1] = CurrentTime;
+  XSendEvent(_disp, curFocus, false, NoEventMask, &event);
+
+  std::vector<std::pair<Rect, Window>> windows;
+  for (auto& c : _clients)
+    if (c.first != curFocus && !c.second.ign)
+      windows.emplace_back(GetWinRect(_disp, c.first), c.first);
+  switchFocus(closestRectFromPoint(center, windows));
+}
+
+/// Utils //////////////////////////////////////////////////////////////////////
+
+//TODO: Clean
 Window Manager::getNextWindowInDir(DIR dir, Window w)
 {
   if (dir == DIR::Last) return w;
 
   XWindowAttributes attr;
   XGetWindowAttributes(_disp, w, &attr);
-  Point c = getCenter(attr.x, attr.y, attr.width, attr.height);
+  Point c = Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
 
   Window closest = 0;
   int minDist = INT_MAX;
@@ -675,16 +842,16 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
 
     XWindowAttributes a;
     XGetWindowAttributes(_disp, m.first, &a);
-    Point o = getCenter(a.x, a.y, a.width, a.height);
-    int plelDist = getDist(c, o, dir);
+    Point o = Rect(a.x, a.y, a.width, a.height).getCenter();
+    int plelDist = c.getDist(o, dir);
     if (plelDist == INT_MAX)
       continue; // Check on right side of centerline
 
     int perpDist;
     if (dir == DIR::Up || dir == DIR::Down) {
-      perpDist = std::min(getDist(c, o, DIR::Left), getDist(c, o, DIR::Right));
+      perpDist = std::min(c.getDist(o, DIR::Left), c.getDist(o, DIR::Right));
     } else {
-      perpDist = std::min(getDist(c, o, DIR::Up), getDist(c, o, DIR::Down));
+      perpDist = std::min(c.getDist(o, DIR::Up), c.getDist(o, DIR::Down));
     }
     if (perpDist == INT_MAX)
       continue;
@@ -701,20 +868,39 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
   return closest;
 }
 
-template<typename T>
-T Manager::closestRectFromPoint(const Point& p, std::vector<std::pair<Rect, T>>& rects)
+//TODO: Clean
+Monitor* Manager::getNextMonitorInDir(DIR dir, Monitor* m)
 {
+  if (dir == DIR::Last)
+    return m;
+
+  Point c = m->r.getCenter();
+  Monitor* closest = nullptr;
   int minDist = INT_MAX;
-  std::optional<T> closest;
-  for (auto& r : rects) {
-    Point o = r.first.getCenter();
-    int vertDist = std::min(getDist(p, o, DIR::Up), getDist(p, o, DIR::Down));
-    int horzDist = std::min(getDist(p, o, DIR::Left), getDist(p, o, DIR::Right));
-    int dist = (int) sqrt((vertDist*vertDist) + (horzDist*horzDist));
+
+  for (auto& monitor : _monitors) {
+    if (&monitor == m)
+      continue;
+    Point o = monitor.r.getCenter();
+    int plelDist = c.getDist(o, dir);
+    if (plelDist == INT_MAX)
+      continue;
+    int perpDist;
+    if (dir == DIR::Up || dir == DIR::Down)
+      perpDist = std::min(c.getDist(o, DIR::Left), c.getDist(o, DIR::Right));
+    else
+      perpDist = std::min(c.getDist(o, DIR::Up), c.getDist(o, DIR::Down));
+    if (perpDist == INT_MAX)
+      continue;
+
+    int dist = (int) sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
     if (dist < minDist) {
       minDist = dist;
-      closest = r.second;
+      closest = &monitor;
     }
   }
-  return closest.value_or(T());
+
+  if (closest == nullptr)
+    return m;
+  return closest;
 }
