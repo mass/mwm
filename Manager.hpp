@@ -71,6 +71,7 @@ class Manager
     void onKeyUnmaximize(const XKeyEvent& e);
     void onKeyClose(const XKeyEvent& e);
 
+    void     drawGrid(Monitor* mon, bool active);
     Window   getNextWindowInDir(DIR dir, Window w);
     Monitor* getNextMonitorInDir(DIR dir, Monitor* m);
 

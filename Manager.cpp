@@ -428,6 +428,9 @@ void Manager::onBtnPress(const XButtonEvent& e)
     return;
   }
 
+  if (_gridActive)
+    return;
+
   // Alt-click
   if (e.state & NUMLOCK) {
     switchFocus(e.window);
@@ -504,29 +507,10 @@ void Manager::handleFocusChange(const XFocusChangeEvent& e, bool in)
   if (e.mode == NotifyGrab || e.mode == NotifyUngrab)
     return;
 
-  //TODO: Clean
-  if (_gridActive) {
-    auto it = std::find_if(begin(_monitors), end(_monitors),
-        [&] (const auto& m) { return m.gridDraw == e.window; });
-    if (it == end(_monitors)) {
-      LOG(ERROR) << "invalid window keypress in grid build mode";
-      return;
-    }
-    auto* mon = &(*it);
-    XClearWindow(_disp, mon->gridDraw);
-    XSetWindowBorder(_disp, mon->gridDraw, in ? GRID_COLOR : GRID_INACT);
-    XGCValues values;
-    GC gc = XCreateGC(_disp, mon->gridDraw, 0, &values);
-    XSetForeground(_disp, gc, in ? GRID_COLOR : GRID_INACT);
-    XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
-    for (unsigned i = 0; i < mon->gridX - 1; ++i) {
-      int x = ((i+1) * (mon->r.w / mon->gridX));
-      XDrawLine(_disp, mon->gridDraw, gc, x, 0, x, mon->r.h);
-    }
-    for (unsigned i = 0; i < mon->gridY - 1; ++i) {
-      int y = ((i+1) * (mon->r.h / mon->gridY));
-      XDrawLine(_disp, mon->gridDraw, gc, 0, y, mon->r.w, y);
-    }
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+      [&] (const auto& m) { return m.gridDraw == e.window; });
+  if (it != end(_monitors)) {
+    drawGrid(&(*it), in);
     return;
   }
 
@@ -548,7 +532,6 @@ void Manager::handleFocusChange(const XFocusChangeEvent& e, bool in)
 
 /// Key Press Handlers /////////////////////////////////////////////////////////
 
-//TODO: Clean
 void Manager::onKeyGridActive(const XKeyEvent& e)
 {
   if (e.keycode == XKeysymToKeycode(_disp, XK_G)) {
@@ -562,7 +545,7 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
   auto it = std::find_if(begin(_monitors), end(_monitors),
       [&] (const Monitor& m) { return m.gridDraw == e.window; });
   if (it == end(_monitors)) {
-    LOG(ERROR) << "invalid window keypress in grid build mode";
+    LOG(ERROR) << "invalid window keypress in grid build mode window=" << e.window;
     return;
   }
   auto* mon = &(*it);
@@ -573,15 +556,14 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
       e.keycode == XKeysymToKeycode(_disp, XK_L)) {
     if (e.state & ShiftMask) {
       DIR dir;
-      if (e.keycode == XKeysymToKeycode(_disp, XK_H)) {
+      if (e.keycode == XKeysymToKeycode(_disp, XK_H))
         dir = DIR::Left;
-      } else if(e.keycode == XKeysymToKeycode(_disp, XK_J)) {
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_J))
         dir = DIR::Down;
-      } else if(e.keycode == XKeysymToKeycode(_disp, XK_K)) {
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
         dir = DIR::Up;
-      } else if(e.keycode == XKeysymToKeycode(_disp, XK_L)) {
+      else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
         dir = DIR::Right;
-      }
 
       Monitor* m = getNextMonitorInDir(dir, mon);
       if (m != mon)
@@ -595,26 +577,12 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
         mon->gridX = (mon->gridX == 1) ? 1 : mon->gridX - 1;
       else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
         mon->gridX++;
-
-      XClearWindow(_disp, mon->gridDraw);
-
-      XGCValues values;
-      GC gc = XCreateGC(_disp, mon->gridDraw, 0, &values);
-      XSetForeground(_disp, gc, GRID_COLOR);
-      XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
-      for (unsigned i = 0; i < mon->gridX - 1; ++i) {
-        int x = ((i+1) * (mon->r.w / mon->gridX));
-        XDrawLine(_disp, mon->gridDraw, gc, x, 0, x, mon->r.h);
-      }
-      for (unsigned i = 0; i < mon->gridY - 1; ++i) {
-        int y = ((i+1) * (mon->r.h / mon->gridY));
-        XDrawLine(_disp, mon->gridDraw, gc, 0, y, mon->r.w, y);
-      }
+      drawGrid(mon, true);
     }
     return;
   }
 
-  LOG(ERROR) << "invalid window keypress in grid build mode";
+  LOG(ERROR) << "invalid window keypress in grid build mode keycode=" << e.keycode;
 }
 
 void Manager::onKeyWinExplorer(const XKeyEvent& /*e*/)
@@ -648,13 +616,11 @@ void Manager::onKeyTerminal(const XKeyEvent& e)
   system(cmd.str().c_str());
 }
 
-//TODO: Clean
-void Manager::onKeyGrid(const XKeyEvent& e)
+void Manager::onKeyGrid(const XKeyEvent& /*e*/)
 {
-  LOG(INFO) << "activating grid building mode window=" << e.window;
+  LOG(INFO) << "activating grid building mode";
 
   _gridActive = true;
-  //TODO: Disable all other features / focus / keys / etc.
 
   for (auto& monitor : _monitors) {
     auto gridDraw = XCreateSimpleWindow(_disp, monitor.root,
@@ -672,19 +638,6 @@ void Manager::onKeyGrid(const XKeyEvent& e)
     XSelectInput(_disp, gridDraw, FocusChangeMask);
     XMapWindow(_disp, gridDraw);
     switchFocus(gridDraw);
-
-    XGCValues values;
-    GC gc = XCreateGC(_disp, gridDraw, 0, &values);
-    XSetForeground(_disp, gc, GRID_COLOR);
-    XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
-    for (unsigned i = 0; i < monitor.gridX - 1; ++i) {
-      int x = ((i+1) * (monitor.r.w / monitor.gridX));
-      XDrawLine(_disp, gridDraw, gc, x, 0, x, monitor.r.h);
-    }
-    for (unsigned i = 0; i < monitor.gridY - 1; ++i) {
-      int y = ((i+1) * (monitor.r.h / monitor.gridY));
-      XDrawLine(_disp, gridDraw, gc, 0, y, monitor.r.w, y);
-    }
   }
 }
 
@@ -821,6 +774,27 @@ void Manager::onKeyClose(const XKeyEvent& e)
 }
 
 /// Utils //////////////////////////////////////////////////////////////////////
+
+void Manager::drawGrid(Monitor* mon, bool active)
+{
+  XClearWindow(_disp, mon->gridDraw);
+  XSetWindowBorder(_disp, mon->gridDraw, (active ? GRID_COLOR : GRID_INACT));
+
+  XGCValues values;
+  GC gc = XCreateGC(_disp, mon->gridDraw, 0, &values);
+  XSetForeground(_disp, gc, (active ? GRID_COLOR : GRID_INACT));
+  XSetLineAttributes(_disp, gc, GRID_THICK, LineSolid, CapButt, JoinBevel);
+
+  for (unsigned i = 0; i < mon->gridX - 1; ++i) {
+    int x = ((i+1) * (mon->r.w / mon->gridX));
+    XDrawLine(_disp, mon->gridDraw, gc, x, 0, x, mon->r.h);
+  }
+
+  for (unsigned i = 0; i < mon->gridY - 1; ++i) {
+    int y = ((i+1) * (mon->r.h / mon->gridY));
+    XDrawLine(_disp, mon->gridDraw, gc, 0, y, mon->r.w, y);
+  }
+}
 
 //TODO: Clean
 Window Manager::getNextWindowInDir(DIR dir, Window w)
