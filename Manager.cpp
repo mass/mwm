@@ -565,8 +565,11 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
       else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
         dir = DIR::Right;
 
-      Monitor* m = getNextMonitorInDir(dir, mon);
-      if (m != mon)
+      std::vector<std::pair<Point, Monitor*>> monitors;
+      for (auto& monitor : _monitors)
+        if (&monitor != mon)
+          monitors.emplace_back(monitor.r.getCenter(), &monitor);
+      if (auto* m = getNextPointInDir(dir, mon->r.getCenter(), monitors); m != nullptr)
         switchFocus(m->gridDraw);
     } else {
       if (e.keycode == XKeysymToKeycode(_disp, XK_J))
@@ -796,85 +799,21 @@ void Manager::drawGrid(Monitor* mon, bool active)
   }
 }
 
-//TODO: Clean
 Window Manager::getNextWindowInDir(DIR dir, Window w)
 {
-  if (dir == DIR::Last) return w;
+  std::vector<std::pair<Point, Window>> windows;
+  for (const auto& m : _clients)
+    if (m.first != w && !m.second.ign) {
+      XWindowAttributes a;
+      XGetWindowAttributes(_disp, m.first, &a);
+      Point o = Rect(a.x, a.y, a.width, a.height).getCenter();
+      windows.emplace_back(o, m.first);
+    }
 
   XWindowAttributes attr;
   XGetWindowAttributes(_disp, w, &attr);
   Point c = Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
 
-  Window closest = 0;
-  int minDist = INT_MAX;
-
-  for (const auto& m : _clients) {
-    if (m.first == w)
-      continue;
-    if (m.second.ign)
-      continue;
-
-    XWindowAttributes a;
-    XGetWindowAttributes(_disp, m.first, &a);
-    Point o = Rect(a.x, a.y, a.width, a.height).getCenter();
-    int plelDist = c.getDist(o, dir);
-    if (plelDist == INT_MAX)
-      continue; // Check on right side of centerline
-
-    int perpDist;
-    if (dir == DIR::Up || dir == DIR::Down) {
-      perpDist = std::min(c.getDist(o, DIR::Left), c.getDist(o, DIR::Right));
-    } else {
-      perpDist = std::min(c.getDist(o, DIR::Up), c.getDist(o, DIR::Down));
-    }
-    if (perpDist == INT_MAX)
-      continue;
-
-    int dist = (int) sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
-    if (dist < minDist) {
-      minDist = dist;
-      closest = m.first;
-    }
-  }
-
-  if (closest == 0)
-    return w;
-  return closest;
-}
-
-//TODO: Clean
-Monitor* Manager::getNextMonitorInDir(DIR dir, Monitor* m)
-{
-  if (dir == DIR::Last)
-    return m;
-
-  Point c = m->r.getCenter();
-  Monitor* closest = nullptr;
-  int minDist = INT_MAX;
-
-  for (auto& monitor : _monitors) {
-    if (&monitor == m)
-      continue;
-    Point o = monitor.r.getCenter();
-    int plelDist = c.getDist(o, dir);
-    if (plelDist == INT_MAX)
-      continue;
-    int perpDist;
-    if (dir == DIR::Up || dir == DIR::Down)
-      perpDist = std::min(c.getDist(o, DIR::Left), c.getDist(o, DIR::Right));
-    else
-      perpDist = std::min(c.getDist(o, DIR::Up), c.getDist(o, DIR::Down));
-    if (perpDist == INT_MAX)
-      continue;
-
-    int dist = (int) sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
-    if (dist < minDist) {
-      minDist = dist;
-      closest = &monitor;
-    }
-  }
-
-  if (closest == nullptr)
-    return m;
-  return closest;
+  auto closest = getNextPointInDir(dir, c, windows);
+  return closest ? closest : w;
 }

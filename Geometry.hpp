@@ -114,3 +114,34 @@ inline T closestRectFromPoint(const Point& p, const std::vector<std::pair<Rect, 
   }
   return closest ? *closest : T();
 }
+
+template<typename T>
+inline T getNextPointInDir(DIR dir, const Point& c, const std::vector<std::pair<Point, T>>& points)
+{
+  if (dir == DIR::Last)
+    return 0;
+
+  T closest = 0;
+  int minDist = INT_MAX;
+
+  for (auto& p : points) {
+    int plelDist = c.getDist(p.first, dir);
+    if (plelDist == INT_MAX)
+      continue;
+    int perpDist;
+    if (dir == DIR::Up || dir == DIR::Down)
+      perpDist = std::min(c.getDist(p.first, DIR::Left), c.getDist(p.first, DIR::Right));
+    else
+      perpDist = std::min(c.getDist(p.first, DIR::Up), c.getDist(p.first, DIR::Down));
+    if (perpDist == INT_MAX)
+      continue;
+
+    int dist = (int) sqrt((plelDist*plelDist) + 4*(perpDist*perpDist));
+    if (dist < minDist) {
+      minDist = dist;
+      closest = p.second;
+    }
+  }
+
+  return closest;
+}
