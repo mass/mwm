@@ -71,6 +71,11 @@ class Manager
     void onKeyUnmaximize(const XKeyEvent& e);
     void onKeyClose(const XKeyEvent& e);
 
+    void snapGrid(Window w, Rect r);
+    void onKeySnapGrid(const XKeyEvent& e);
+    void onKeyMoveGridLoc(const XKeyEvent& e);
+    void onKeyMoveGridSize(const XKeyEvent& e);
+
     void     drawGrid(Monitor* mon, bool active);
     Window   getNextWindowInDir(DIR dir, Window w);
 

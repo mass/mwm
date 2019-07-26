@@ -16,7 +16,7 @@
 
 #define BORDER_THICK   5
 #define BORDER_FOCUS   0x005F87
-#define BORDER_UNFOCUS 0x181818
+#define BORDER_UNFOCUS 0x0C0C0C
 
 #define GRID_THICK 1
 #define GRID_INACT 0x880000
@@ -27,15 +27,17 @@
 /// Keyboard / Mouse Shortcuts
 ///
 /// Numlock         + h,j,k,l | Move focus to other window
-/// Numlock + Shift + h,j,k,l | TODO:
-/// Numlock + Alt   + h,j,k,l | TODO: Move window in grid on current monitor
-/// Numlock + Ctrl  + h,j,k,l | TODO: Move window to other monitor
+/// Numlock + Shift + h,j,k,l | Move window in grid on current monitor
+/// Numlock + Ctrl  + h,j,k,l | Change window size using grid on current monitor
+/// Numlock + Alt   + h,j,k,l | TODO: Move window to other monitors
 ///
-/// Numlock + D | Close the window that currently has focus
-/// Numlock + T | Open a terminal
-/// Numlock + M | Maximize the current window
-/// Numlock + N | Restore/unmaximize the current window
-/// Numlock + G | Open grid building mode
+/// Numlock + D   | Close the window that currently has focus
+/// Numlock + T   | Open a terminal
+/// Numlock + M   | Maximize the current window
+/// Numlock + N   | Restore/unmaximize the current window
+/// Numlock + G   | Open grid building mode
+/// Numlock + S   | Snap current window to closest grid location / size
+/// Numlock + Tab | TODO: Window explorer mode
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -177,10 +179,15 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N,
-                                      XK_H, XK_J, XK_K, XK_L, XK_G };
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S };
+  static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
+  for (int key : MOV_KEYS) {
+    XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | ShiftMask, w, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | ControlMask, w, false, GrabModeAsync, GrabModeAsync);
+  }
 
   XSelectInput(_disp, w, FocusChangeMask);
 
@@ -393,11 +400,19 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyTerminal(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_G))
     onKeyGrid(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_S))
+    onKeySnapGrid(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_H) ||
            e.keycode == XKeysymToKeycode(_disp, XK_J) ||
            e.keycode == XKeysymToKeycode(_disp, XK_K) ||
-           e.keycode == XKeysymToKeycode(_disp, XK_L))
-    onKeyMoveFocus(e);
+           e.keycode == XKeysymToKeycode(_disp, XK_L)) {
+    if (e.state & ShiftMask)
+      onKeyMoveGridLoc(e);
+    else if (e.state & ControlMask)
+      onKeyMoveGridSize(e);
+    else
+      onKeyMoveFocus(e);
+  }
   else if (e.keycode == XKeysymToKeycode(_disp, XK_M))
     onKeyMaximize(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_N))
@@ -774,6 +789,121 @@ void Manager::onKeyClose(const XKeyEvent& e)
     if (c.first != curFocus && !c.second.ign)
       windows.emplace_back(GetWinRect(_disp, c.first), c.first);
   switchFocus(closestRectFromPoint(center, windows));
+}
+
+void Manager::snapGrid(Window w, Rect r)
+{
+  Point c = r.getCenter();
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+                         [c] (const auto& m) { return m.r.contains(c); });
+  if (it == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
+    return;
+  }
+  auto& mon = *it;
+
+  double gridW = double(mon.r.w) / mon.gridX;
+  double gridH = double(mon.r.h) / mon.gridY;
+  int xNum = std::max(1, (int) round(double(r.w) / gridW));
+  int yNum = std::max(1, (int) round(double(r.h) / gridH));
+  auto widX = int(xNum * gridW);
+  auto widY = int(yNum * gridH);
+
+  int minX;
+  int minDist = INT_MAX;
+  for (unsigned j = 1, k = xNum; j <= (mon.gridX - xNum) + 1; ++j, k += 2) {
+    auto gridCen = mon.r.o.x + int(k*(gridW/2));
+    auto dist = abs(c.x - gridCen);
+    if (dist < minDist) {
+      minDist = dist;
+      minX = gridCen;
+    }
+  }
+
+  int minY;
+  minDist = INT_MAX;
+  for (unsigned j = 1, k = yNum; j <= (mon.gridY - yNum) + 1; ++j, k += 2) {
+    auto gridCen = mon.r.o.y + int(k*(gridH/2));
+    auto dist = abs(c.y - gridCen);
+    if (dist < minDist) {
+      minDist = dist;
+      minY = gridCen;
+    }
+  }
+
+  XWindowChanges changes;
+  changes.width = widX - (2 * BORDER_THICK);
+  changes.height = widY - (2 * BORDER_THICK);
+  changes.x = minX - (widX / 2);
+  changes.y = minY - (widY / 2);
+  XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+}
+
+void Manager::onKeySnapGrid(const XKeyEvent& e)
+{
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.window, &attr);
+  snapGrid(e.window, Rect(attr.x, attr.y, attr.width, attr.height));
+}
+
+void Manager::onKeyMoveGridLoc(const XKeyEvent& e)
+{
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.window, &attr);
+  Rect loc(attr.x, attr.y, attr.width, attr.height);
+  Point c = loc.getCenter();
+
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+                         [c] (const auto& m) { return m.r.contains(c); });
+  if (it == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
+    return;
+  }
+  auto& mon = *it;
+
+  int gridW = mon.r.w / mon.gridX;
+  int gridH = mon.r.h / mon.gridY;
+
+  if (e.keycode == XKeysymToKeycode(_disp, XK_H))
+    loc.o.x = std::max(loc.o.x - gridW, mon.r.o.x);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_J))
+    loc.o.y = std::min(loc.o.y + gridH, mon.r.o.y + mon.r.h - loc.h);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
+    loc.o.y = std::max(loc.o.y - gridH, mon.r.o.y);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
+    loc.o.x = std::min(loc.o.x + gridW, mon.r.o.x + mon.r.w - loc.w);
+
+  snapGrid(e.window, loc);
+}
+
+void Manager::onKeyMoveGridSize(const XKeyEvent& e)
+{
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.window, &attr);
+  Rect loc(attr.x, attr.y, attr.width, attr.height);
+  Point c = loc.getCenter();
+
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+                         [c] (const auto& m) { return m.r.contains(c); });
+  if (it == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
+    return;
+  }
+  auto& mon = *it;
+
+  int gridW = mon.r.w / mon.gridX;
+  int gridH = mon.r.h / mon.gridY;
+
+  if (e.keycode == XKeysymToKeycode(_disp, XK_H))
+    loc.w = std::max(loc.w - gridW, gridW);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_J))
+    loc.h = std::max(loc.h - gridH, gridH);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
+    loc.h = std::min(loc.h + gridH, mon.r.h);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
+    loc.w = std::min(loc.w + gridW, mon.r.w);
+
+  snapGrid(e.window, loc);
 }
 
 /// Utils //////////////////////////////////////////////////////////////////////
