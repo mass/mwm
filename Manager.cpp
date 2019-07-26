@@ -29,7 +29,7 @@
 /// Numlock         + h,j,k,l | Move focus to other window
 /// Numlock + Shift + h,j,k,l | Move window in grid on current monitor
 /// Numlock + Ctrl  + h,j,k,l | Change window size using grid on current monitor
-/// Numlock + Alt   + h,j,k,l | TODO: Move window to other monitors
+/// Numlock + Alt   + h,j,k,l | Move window to other monitors
 ///
 /// Numlock + D   | Close the window that currently has focus
 /// Numlock + T   | Open a terminal
@@ -187,6 +187,7 @@ void Manager::addClient(Window w, bool checkIgn)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | ShiftMask, w, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | ControlMask, w, false, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | Mod1Mask /*Alt*/, w, false, GrabModeAsync, GrabModeAsync);
   }
 
   XSelectInput(_disp, w, FocusChangeMask);
@@ -410,6 +411,8 @@ void Manager::onKeyPress(const XKeyEvent& e)
       onKeyMoveGridLoc(e);
     else if (e.state & ControlMask)
       onKeyMoveGridSize(e);
+    else if (e.state & Mod1Mask)
+      onKeyMoveMonitor(e);
     else
       onKeyMoveFocus(e);
   }
@@ -605,9 +608,9 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
 
 void Manager::onKeyWinExplorer(const XKeyEvent& /*e*/)
 {
-  //TODO: Calculate new coordinates for all clients on a monitor
-  //TODO: Save old position of each client and move them to new coordinates
-  //TODO: On click on a client, send all *other* clients back to their old position
+  // Calculate new coordinates for all clients on a monitor
+  // Save old position of each client and move them to new coordinates
+  // On click on a client, send all *other* clients back to their old position
 }
 
 void Manager::onKeyTerminal(const XKeyEvent& e)
@@ -657,6 +660,51 @@ void Manager::onKeyGrid(const XKeyEvent& /*e*/)
     XMapWindow(_disp, gridDraw);
     switchFocus(gridDraw);
   }
+}
+
+void Manager::onKeyMoveMonitor(const XKeyEvent& e)
+{
+  DIR dir;
+  if (e.keycode == XKeysymToKeycode(_disp, XK_H))
+    dir = DIR::Left;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_J))
+    dir = DIR::Down;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_K))
+    dir = DIR::Up;
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_L))
+    dir = DIR::Right;
+
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.window, &attr);
+  Rect cur(attr.x, attr.y, attr.width, attr.height);
+  Point cen = cur.getCenter();
+
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+                         [&] (const auto& m) { return m.r.contains(cen); });
+  if (it == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << cen.x << "," << cen.y << ")";
+    return;
+  }
+  auto* curMon = &(*it);
+
+  std::vector<std::pair<Point, Monitor*>> monitors;
+  for (auto& monitor : _monitors)
+    if (&monitor != curMon)
+      monitors.emplace_back(monitor.r.getCenter(), &monitor);
+  auto* m = getNextPointInDir(dir, curMon->r.getCenter(), monitors);
+  if (m == nullptr)
+    return;
+
+  int w = std::min(cur.w + (2 * BORDER_THICK), m->r.w);
+  int h = std::min(cur.h + (2 * BORDER_THICK), m->r.h);
+
+  XWindowChanges changes;
+  changes.x = m->r.getCenter().x - (w / 2);
+  changes.y = m->r.getCenter().y - (h / 2);
+  changes.width = w - (2 * BORDER_THICK);
+  changes.height = h - (2 * BORDER_THICK);
+
+  XConfigureWindow(_disp, e.window, (CWX | CWY | CWWidth | CWHeight), &changes);
 }
 
 void Manager::onKeyMoveFocus(const XKeyEvent& e)

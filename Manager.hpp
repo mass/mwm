@@ -66,6 +66,7 @@ class Manager
     void onKeyWinExplorer(const XKeyEvent& e);
     void onKeyTerminal(const XKeyEvent& e);
     void onKeyGrid(const XKeyEvent& e);
+    void onKeyMoveMonitor(const XKeyEvent& e);
     void onKeyMoveFocus(const XKeyEvent& e);
     void onKeyMaximize(const XKeyEvent& e);
     void onKeyUnmaximize(const XKeyEvent& e);
