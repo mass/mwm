@@ -195,6 +195,32 @@ void Manager::addClient(Window w, bool checkIgn)
   XSetWindowBorderWidth(_disp, w, BORDER_THICK);
   XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
 
+  // Check to make sure we dont place a new client somewhere off the screens
+  auto itm = std::find_if(begin(_monitors), end(_monitors),
+                          [&] (const auto& m) { return m.r.contains(Point(attrs.x, attrs.y)); });
+  if (itm == end(_monitors)) {
+    LOG(INFO) << "new client started off the screen, relocating client=" << w;
+    int curW = attrs.width;
+    int curH = attrs.height;
+    Window curFocus; int curRevert;
+    XGetInputFocus(_disp, &curFocus, &curRevert);
+    XGetWindowAttributes(_disp, curFocus, &attrs);
+    itm = std::find_if(begin(_monitors), end(_monitors),
+                       [&] (const auto& m) { return m.r.contains(Point(attrs.x, attrs.y)); });
+    if (itm == end(_monitors)) {
+      LOG(ERROR) << "no monitor contains curFocus (" << attrs.x << "," << attrs.y << ")";
+    } else {
+      curW = std::min(curW + (2 * BORDER_THICK), itm->r.w);
+      curH = std::min(curH + (2 * BORDER_THICK), itm->r.h);
+      XWindowChanges changes;
+      changes.x = itm->r.getCenter().x - (curW / 2);
+      changes.y = itm->r.getCenter().y - (curH / 2);
+      changes.width = curW - (2 * BORDER_THICK);
+      changes.height = curH - (2 * BORDER_THICK);
+      XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+    }
+  }
+
   XMapWindow(_disp, w);
   LOG(INFO) << "added client=" << w;
 }
@@ -630,9 +656,28 @@ void Manager::onKeyTerminal(const XKeyEvent& e)
     screen = it2->second;
   }
 
+  static const int cols = 120;
+  static const int rows = 40;
+  static const int offset = 100;
+  int x = offset;
+  int y = offset;
+
+  XWindowAttributes attr;
+  XGetWindowAttributes(_disp, e.window, &attr);
+  Rect cur(attr.x, attr.y, attr.width, attr.height);
+  Point cen = cur.getCenter();
+  auto itm = std::find_if(begin(_monitors), end(_monitors),
+                          [&] (const auto& m) { return m.r.contains(cen); });
+  if (itm == end(_monitors)) {
+    LOG(ERROR) << "no monitor contains (" << cen.x << "," << cen.y << ")";
+  } else {
+    x = itm->r.o.x + offset;
+    y = itm->r.o.y + offset;
+  }
+
   std::ostringstream cmd;
   cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen << " ";
-  cmd << "st &";
+  cmd << "st -g " << cols << "x" << rows << "+" << x << "+" << y << " &";
   LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
   system(cmd.str().c_str());
 }
