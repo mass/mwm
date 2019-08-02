@@ -167,15 +167,15 @@ void Manager::addClient(Window w, bool checkIgn)
 
   // For selecting focus
   XGrabButton(_disp, 1, 0, w, false,
-              ButtonPressMask | ButtonReleaseMask,
-              GrabModeAsync, GrabModeAsync, None, None);
+              ButtonPressMask,
+              GrabModeSync, GrabModeAsync, None, None);
 
   // For moving/resizing
   XGrabButton(_disp, 1, NUMLOCK, w, false,
-              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              ButtonPressMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
   XGrabButton(_disp, 3, NUMLOCK, w, false,
-              ButtonPressMask | ButtonReleaseMask | ButtonMotionMask,
+              ButtonPressMask | ButtonMotionMask,
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
@@ -242,7 +242,6 @@ void Manager::run()
       case CreateNotify:
       case DestroyNotify:
       case KeyRelease:
-      case ButtonRelease:
         break;
 
       case MapRequest:
@@ -464,11 +463,9 @@ void Manager::onBtnPress(const XButtonEvent& e)
 
   // Normal click
   if (e.state == 0) {
-    if (e.subwindow != 0)
-      switchFocus(e.subwindow);
-    else
-      switchFocus(e.window);
+    switchFocus(e.window);
     _drag = {};
+    XAllowEvents(_disp, ReplayPointer, CurrentTime); // Replay button click so client handles it
     return;
   }
 
@@ -563,8 +560,8 @@ void Manager::handleFocusChange(const XFocusChangeEvent& e, bool in)
 
   if (!in) {
     LOG(INFO) << "focus out, regrab window=" << e.window;
-    XGrabButton(_disp, 1, 0, e.window, false, ButtonPressMask | ButtonReleaseMask,
-                GrabModeAsync, GrabModeAsync, None, None);
+    XGrabButton(_disp, 1, 0, e.window, false, ButtonPressMask,
+                GrabModeSync, GrabModeAsync, None, None);
     XSetWindowBorder(_disp, e.window, BORDER_UNFOCUS);
   } else {
     LOG(INFO) << "focus in, ungrab window=" << e.window;
