@@ -25,6 +25,11 @@
 #define GRID_BG    0x181818
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Notes
+///
+/// - You may need to set Xcursor.size in ~/.Xresources
+
+////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
 ///
 /// Numlock         + h,j,k,l | Move focus to other window
@@ -39,6 +44,7 @@
 /// Numlock + G   | Open grid building mode
 /// Numlock + S   | Snap current window to closest grid location / size
 /// Numlock + Tab | TODO: Window explorer mode
+/// Numlock + P   | Lock the screen
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -180,7 +186,7 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S };
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
@@ -466,6 +472,8 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyUnmaximize(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_D))
     onKeyClose(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_P))
+    system("slock");
   else {
     if (_roots.find(e.window) == _roots.end())
       LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
