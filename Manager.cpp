@@ -4,6 +4,7 @@
 #include "XUtils.hpp"
 
 #include <X11/cursorfont.h>
+#include <X11/XF86keysym.h>
 #include <X11/extensions/Xrandr.h>
 
 #include <algorithm>
@@ -189,6 +190,10 @@ void Manager::addClient(Window w, bool checkIgn)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | ControlMask, w, false, GrabModeAsync, GrabModeAsync);
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK | Mod1Mask /*Alt*/, w, false, GrabModeAsync, GrabModeAsync);
   }
+
+  XGrabKey(_disp, XKeysymToKeycode(_disp, XF86XK_AudioMute), AnyModifier, w, false, GrabModeAsync, GrabModeAsync);
+  XGrabKey(_disp, XKeysymToKeycode(_disp, XF86XK_AudioRaiseVolume), AnyModifier, w, false, GrabModeAsync, GrabModeAsync);
+  XGrabKey(_disp, XKeysymToKeycode(_disp, XF86XK_AudioLowerVolume), AnyModifier, w, false, GrabModeAsync, GrabModeAsync);
 
   XSelectInput(_disp, w, FocusChangeMask);
 
@@ -411,6 +416,20 @@ void Manager::onKeyPress(const XKeyEvent& e)
 
   if (_gridActive) {
     onKeyGridActive(e);
+    return;
+  }
+
+  //TODO: Play beep and/or show volume bar of some kind
+  if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioMute)) {
+    system("pactl set-sink-mute @DEFAULT_SINK@ toggle");
+    return;
+  }
+  if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioRaiseVolume)) {
+    system("pactl set-sink-volume @DEFAULT_SINK@ +1000");
+    return;
+  }
+  if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioLowerVolume)) {
+    system("pactl set-sink-volume @DEFAULT_SINK@ -1000");
     return;
   }
 

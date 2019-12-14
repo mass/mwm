@@ -47,10 +47,7 @@ class Log
     // Print newline and flush in destructor
     ~Log()
     {
-      _stream << std::endl;
-
-      // Flush stream to cout
-      std::cout << _stream.str();
+      std::cout << _stream.str() << std::endl;
     }
 
     Log(Log&&) = delete;
