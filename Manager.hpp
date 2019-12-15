@@ -13,6 +13,7 @@ struct Client
   Window root;
   Rect preMax;
   bool ign;
+  Point absOrigin;
 };
 
 struct Monitor
@@ -20,10 +21,17 @@ struct Monitor
   std::string name;
   Rect r;
   Window root;
+  Point absOrigin;
 
   Window gridDraw;
   unsigned gridX;
   unsigned gridY;
+};
+
+struct Root
+{
+  int screen;
+  Point absOrigin;
 };
 
 struct Drag
@@ -44,7 +52,7 @@ class Manager
   public:
 
     Manager(const std::string& display,
-            const std::vector<int>& screens);
+            const std::map<int,Point>& screens);
     ~Manager();
 
     bool init();
@@ -83,11 +91,11 @@ class Manager
   private:
 
     const std::string& _argDisp;
-    const std::vector<int>& _argScreens;
+    const std::map<int,Point>& _argScreens;
 
     Display* _disp = nullptr;
     std::map<Window, Client> _clients;
-    std::map<Window, int> _roots;
+    std::map<Window, Root> _roots;
     std::vector<Monitor> _monitors;
 
     Drag _drag = {};

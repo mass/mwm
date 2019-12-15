@@ -26,6 +26,7 @@ struct Point
 
   double getDist(const Point& o) const;
   int    getDist(const Point& o, DIR dir) const;
+  Point  operator+(const Point& o) const;
 };
 
 struct Rect
@@ -38,8 +39,9 @@ struct Rect
   Rect(int x, int y, int w, int h)
     : o(x, y), w(w), h(h) {}
 
-  bool contains(const Point& a) const;
+  bool  contains(const Point& a) const;
   Point getCenter() const;
+  Rect  operator+(const Point& o) const;
 };
 
 /// Point //////////////////////////////////////////////////////////////////////
@@ -76,6 +78,11 @@ inline int Point::getDist(const Point& o, DIR dir) const
   return dist;
 }
 
+inline Point Point::operator+(const Point& o) const
+{
+  return Point(x + o.x, y + o.y);
+}
+
 /// Rect ///////////////////////////////////////////////////////////////////////
 
 inline bool Rect::contains(const Point& a) const
@@ -93,6 +100,12 @@ inline Point Rect::getCenter() const
   c.x += (w/2);
   c.y += (h/2);
   return c;
+}
+
+inline Rect Rect::operator+(const Point& a) const
+{
+  Point no = o + a;
+  return Rect(no.x, no.y, w, h);
 }
 
 /// Misc ///////////////////////////////////////////////////////////////////////
@@ -126,7 +139,7 @@ inline T getNextPointInDir(DIR dir, const Point& c, const std::vector<std::pair<
 
   for (auto& p : points) {
     int plelDist = c.getDist(p.first, dir);
-    if (plelDist == INT_MAX)
+    if (plelDist == INT_MAX || plelDist == 0)
       continue;
     int perpDist;
     if (dir == DIR::Up || dir == DIR::Down)

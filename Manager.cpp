@@ -65,7 +65,7 @@ static int XError(Display* display, XErrorEvent* e) {
 }
 
 Manager::Manager(const std::string& display,
-                 const std::vector<int>& screens)
+                 const std::map<int,Point>& screens)
   : _argDisp(display)
   , _argScreens(screens)
 {}
@@ -92,12 +92,16 @@ bool Manager::init()
   LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << numScreens;
 
   for (int i = 0; i < numScreens; ++i) {
-    if (std::count(begin(_argScreens), end(_argScreens), i) == 0)
+    if (_argScreens.find(i) == _argScreens.end())
       continue;
 
     auto root = RootWindow(_disp, i);
-    LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root;
-    _roots[root] = i;
+    LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root
+              << " origin=(" << _argScreens.at(i).x << "," << _argScreens.at(i).y << ")";
+    Root r;
+    r.screen = i;
+    r.absOrigin = _argScreens.at(i);
+    _roots[root] = r;
 
     XSelectInput(_disp, root, SubstructureRedirectMask | SubstructureNotifyMask |
                               KeyPressMask | ButtonPressMask | FocusChangeMask);
@@ -134,6 +138,7 @@ bool Manager::init()
       m.gridDraw = 0;
       m.gridX = 1;
       m.gridY = 1;
+      m.absOrigin = _argScreens.at(i);
       _monitors.push_back(m);
     }
 
@@ -170,6 +175,7 @@ void Manager::addClient(Window w, bool checkIgn)
   c.client = w;
   c.root = GetWinRoot(_disp, w);
   c.ign = checkIgn && (attrs.override_redirect || (attrs.map_state != IsViewable));
+  c.absOrigin = _roots.at(c.root).absOrigin;
   _clients.insert({w, c});
 
   // For selecting focus
@@ -207,29 +213,26 @@ void Manager::addClient(Window w, bool checkIgn)
   XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
 
   // Check to make sure we dont place a new client somewhere off the screens
-  auto itm = std::find_if(begin(_monitors), end(_monitors),
-                          [&] (const auto& m) { return m.r.contains(Point(attrs.x, attrs.y)); });
-  if (itm == end(_monitors)) {
+  if (std::find_if(begin(_monitors), end(_monitors),
+        [&] (const auto& m) { return m.root == c.root && m.r.contains(Point(attrs.x, attrs.y)); }) ==
+      end(_monitors))
+  {
     LOG(INFO) << "new client started off the screen, relocating client=" << w;
-    int curW = attrs.width;
-    int curH = attrs.height;
-    Window curFocus; int curRevert;
-    XGetInputFocus(_disp, &curFocus, &curRevert);
-    XGetWindowAttributes(_disp, curFocus, &attrs);
-    itm = std::find_if(begin(_monitors), end(_monitors),
-                       [&] (const auto& m) { return m.r.contains(Point(attrs.x, attrs.y)); });
-    if (itm == end(_monitors)) {
-      LOG(ERROR) << "no monitor contains curFocus (" << attrs.x << "," << attrs.y << ")";
-    } else {
-      curW = std::min(curW + (2 * BORDER_THICK), itm->r.w);
-      curH = std::min(curH + (2 * BORDER_THICK), itm->r.h);
-      XWindowChanges changes;
-      changes.x = itm->r.getCenter().x - (curW / 2);
-      changes.y = itm->r.getCenter().y - (curH / 2);
-      changes.width = curW - (2 * BORDER_THICK);
-      changes.height = curH - (2 * BORDER_THICK);
-      XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
-    }
+
+    std::vector<std::pair<Rect, Monitor*>> monitors;
+    for (auto& m : _monitors)
+      if (c.root == m.root)
+        monitors.emplace_back(m.r, &m);
+    auto* mon = closestRectFromPoint(Point(attrs.x, attrs.y), monitors);
+
+    int curW = std::min(attrs.width + (2 * BORDER_THICK), mon->r.w);
+    int curH = std::min(attrs.height + (2 * BORDER_THICK), mon->r.h);
+    XWindowChanges changes;
+    changes.x = mon->r.getCenter().x - (curW / 2);
+    changes.y = mon->r.getCenter().y - (curH / 2);
+    changes.width = curW - (2 * BORDER_THICK);
+    changes.height = curH - (2 * BORDER_THICK);
+    XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
   }
 
   XMapWindow(_disp, w);
@@ -636,8 +639,8 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
       std::vector<std::pair<Point, Monitor*>> monitors;
       for (auto& monitor : _monitors)
         if (&monitor != mon)
-          monitors.emplace_back(monitor.r.getCenter(), &monitor);
-      if (auto* m = getNextPointInDir(dir, mon->r.getCenter(), monitors); m != nullptr)
+          monitors.emplace_back(monitor.absOrigin + monitor.r.getCenter(), &monitor);
+      if (auto* m = getNextPointInDir(dir, mon->absOrigin + mon->r.getCenter(), monitors); m != nullptr)
         switchFocus(m->gridDraw);
     } else {
       if (e.keycode == XKeysymToKeycode(_disp, XK_J))
@@ -668,16 +671,20 @@ void Manager::onKeyTerminal(const XKeyEvent& e)
   LOG(INFO) << "launching terminal window=" << e.window;
 
   int screen;
+  Window root;
   auto it = _clients.find(e.window);
-  if (it != end(_clients))
-    screen = _roots.at(it->second.root);
+  if (it != end(_clients)) {
+    root = it->second.root;
+    screen = _roots.at(root).screen;
+  }
   else {
     auto it2 = _roots.find(e.window);
     if (it2 == end(_roots)) {
       LOG(ERROR) << "unable to find window=" << e.window;
       return;
     }
-    screen = it2->second;
+    root = e.window;
+    screen = it2->second.screen;
   }
 
   static const int cols = 120;
@@ -691,7 +698,7 @@ void Manager::onKeyTerminal(const XKeyEvent& e)
   Rect cur(attr.x, attr.y, attr.width, attr.height);
   Point cen = cur.getCenter();
   auto itm = std::find_if(begin(_monitors), end(_monitors),
-                          [&] (const auto& m) { return m.r.contains(cen); });
+                          [&] (const auto& m) { return m.root == root && m.r.contains(cen); });
   if (itm == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << cen.x << "," << cen.y << ")";
   } else {
@@ -747,9 +754,10 @@ void Manager::onKeyMoveMonitor(const XKeyEvent& e)
   XGetWindowAttributes(_disp, e.window, &attr);
   Rect cur(attr.x, attr.y, attr.width, attr.height);
   Point cen = cur.getCenter();
+  Window root = GetWinRoot(_disp, e.window);
 
   auto it = std::find_if(begin(_monitors), end(_monitors),
-                         [&] (const auto& m) { return m.r.contains(cen); });
+                         [&] (const auto& m) { return m.root == root && m.r.contains(cen); });
   if (it == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << cen.x << "," << cen.y << ")";
     return;
@@ -758,7 +766,7 @@ void Manager::onKeyMoveMonitor(const XKeyEvent& e)
 
   std::vector<std::pair<Point, Monitor*>> monitors;
   for (auto& monitor : _monitors)
-    if (&monitor != curMon)
+    if (&monitor != curMon && monitor.root == root)
       monitors.emplace_back(monitor.r.getCenter(), &monitor);
   auto* m = getNextPointInDir(dir, curMon->r.getCenter(), monitors);
   if (m == nullptr)
@@ -821,7 +829,7 @@ void Manager::onKeyMaximize(const XKeyEvent& e)
   Point c = Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
 
   auto it2 = std::find_if(begin(_monitors), end(_monitors),
-                          [c] (const auto& m) { return m.r.contains(c); });
+                          [&] (const auto& m) { return m.root == client.root && m.r.contains(c); });
   if (it2 == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
     return;
@@ -885,7 +893,7 @@ void Manager::onKeyClose(const XKeyEvent& e)
 {
   Window curFocus; int curRevert;
   XGetInputFocus(_disp, &curFocus, &curRevert);
-  auto center = GetWinRect(_disp, curFocus).getCenter();
+  auto center = _roots.at(GetWinRoot(_disp, curFocus)).absOrigin + GetWinRect(_disp, curFocus).getCenter();
 
   LOG(INFO) << "closing window"
             << " curFocus=" << curFocus
@@ -904,15 +912,16 @@ void Manager::onKeyClose(const XKeyEvent& e)
   std::vector<std::pair<Rect, Window>> windows;
   for (auto& c : _clients)
     if (c.first != curFocus && !c.second.ign)
-      windows.emplace_back(GetWinRect(_disp, c.first), c.first);
+      windows.emplace_back(GetWinRect(_disp, c.first) + c.second.absOrigin, c.first);
   switchFocus(closestRectFromPoint(center, windows));
 }
 
 void Manager::snapGrid(Window w, Rect r)
 {
   Point c = r.getCenter();
+  Window root = GetWinRoot(_disp, w);
   auto it = std::find_if(begin(_monitors), end(_monitors),
-                         [c] (const auto& m) { return m.r.contains(c); });
+                         [&] (const auto& m) { return m.root == root && m.r.contains(c); });
   if (it == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
     return;
@@ -969,9 +978,10 @@ void Manager::onKeyMoveGridLoc(const XKeyEvent& e)
   XGetWindowAttributes(_disp, e.window, &attr);
   Rect loc(attr.x, attr.y, attr.width, attr.height);
   Point c = loc.getCenter();
+  Window root = GetWinRoot(_disp, e.window);
 
   auto it = std::find_if(begin(_monitors), end(_monitors),
-                         [c] (const auto& m) { return m.r.contains(c); });
+                         [&] (const auto& m) { return m.root == root && m.r.contains(c); });
   if (it == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
     return;
@@ -999,9 +1009,10 @@ void Manager::onKeyMoveGridSize(const XKeyEvent& e)
   XGetWindowAttributes(_disp, e.window, &attr);
   Rect loc(attr.x, attr.y, attr.width, attr.height);
   Point c = loc.getCenter();
+  Window root = GetWinRoot(_disp, e.window);
 
   auto it = std::find_if(begin(_monitors), end(_monitors),
-                         [c] (const auto& m) { return m.r.contains(c); });
+                         [&] (const auto& m) { return m.root == root && m.r.contains(c); });
   if (it == end(_monitors)) {
     LOG(ERROR) << "no monitor contains (" << c.x << "," << c.y << ")";
     return;
@@ -1049,17 +1060,18 @@ void Manager::drawGrid(Monitor* mon, bool active)
 Window Manager::getNextWindowInDir(DIR dir, Window w)
 {
   std::vector<std::pair<Point, Window>> windows;
-  for (const auto& m : _clients)
+  for (const auto& m : _clients) {
     if (m.first != w && !m.second.ign) {
       XWindowAttributes a;
       XGetWindowAttributes(_disp, m.first, &a);
-      Point o = Rect(a.x, a.y, a.width, a.height).getCenter();
-      windows.emplace_back(o, m.first);
+      Point c = m.second.absOrigin + Rect(a.x, a.y, a.width, a.height).getCenter();
+      windows.emplace_back(c, m.first);
     }
+  }
 
   XWindowAttributes attr;
   XGetWindowAttributes(_disp, w, &attr);
-  Point c = Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
+  Point c = _roots.at(GetWinRoot(_disp, w)).absOrigin + Rect(attr.x, attr.y, attr.width, attr.height).getCenter();
 
   auto closest = getNextPointInDir(dir, c, windows);
   return closest ? closest : w;

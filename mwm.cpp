@@ -12,7 +12,7 @@ int main(int argc, char* argv[])
   };
 
   std::string display;
-  std::vector<int> screens;
+  std::map<int,Point> screens;
 
   int ch;
   while ((ch = getopt_long(argc, argv, "d:s:", long_options, NULL)) != -1) {
@@ -21,7 +21,11 @@ int main(int argc, char* argv[])
         display = optarg;
         break;
       case 's':
-        screens.push_back(atoi(optarg));
+        int screen;
+        int x = 0, y = 0;
+        if (sscanf(optarg, "%i(%i,%i)", &screen, &x, &y) < 1)
+          throw std::invalid_argument("invalid screen argument");
+        screens[screen] = Point(x,y);
         break;
     }
   }
