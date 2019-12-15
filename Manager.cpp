@@ -28,6 +28,7 @@
 /// Notes
 ///
 /// - You may need to set Xcursor.size in ~/.Xresources
+/// - Dependencies: pactl, slock, j4-dmenu-desktop, st
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
@@ -45,6 +46,7 @@
 /// Numlock + S   | Snap current window to closest grid location / size
 /// Numlock + Tab | TODO: Window explorer mode
 /// Numlock + P   | Lock the screen
+/// Numlock + A   | Open application menu launcher
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -192,7 +194,7 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P };
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
@@ -477,6 +479,14 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyClose(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_P))
     system("slock");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_A)) {
+    std::ostringstream cmd;
+    cmd << "j4-dmenu-desktop";
+    cmd << " --dmenu=\"dmenu -i -p 'mwm' -w " << e.window << "\"";
+    cmd << " --term=\"st\"";
+    cmd << " >/dev/null 2>&1 &";
+    system(cmd.str().c_str());
+  }
   else {
     if (_roots.find(e.window) == _roots.end())
       LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
