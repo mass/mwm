@@ -28,7 +28,8 @@
 /// Notes
 ///
 /// - You may need to set Xcursor.size in ~/.Xresources
-/// - Dependencies: pactl, slock, j4-dmenu-desktop, st
+/// - Dependencies: pactl, slock, j4-dmenu-desktop, dmenu, st,
+//                  import (imagemagick)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Keyboard / Mouse Shortcuts
@@ -47,6 +48,7 @@
 /// Numlock + Tab | TODO: Window explorer mode
 /// Numlock + P   | Lock the screen
 /// Numlock + A   | Open application menu launcher
+/// Numlock + O   | Open screenshot dialog
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -194,7 +196,7 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A };
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
@@ -482,11 +484,13 @@ void Manager::onKeyPress(const XKeyEvent& e)
   else if (e.keycode == XKeysymToKeycode(_disp, XK_A)) {
     std::ostringstream cmd;
     cmd << "j4-dmenu-desktop";
-    cmd << " --dmenu=\"dmenu -i -p 'mwm' -w " << e.window << "\"";
+    cmd << " --dmenu=\"dmenu -i -p 'mwm' -l 25 -c -w " << e.window << "\"";
     cmd << " --term=\"st\"";
     cmd << " >/dev/null 2>&1 &";
     system(cmd.str().c_str());
   }
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_O))
+    onKeyScreenshot(e);
   else {
     if (_roots.find(e.window) == _roots.end())
       LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
@@ -680,22 +684,8 @@ void Manager::onKeyTerminal(const XKeyEvent& e)
 {
   LOG(INFO) << "launching terminal window=" << e.window;
 
-  int screen;
-  Window root;
-  auto it = _clients.find(e.window);
-  if (it != end(_clients)) {
-    root = it->second.root;
-    screen = _roots.at(root).screen;
-  }
-  else {
-    auto it2 = _roots.find(e.window);
-    if (it2 == end(_roots)) {
-      LOG(ERROR) << "unable to find window=" << e.window;
-      return;
-    }
-    root = e.window;
-    screen = it2->second.screen;
-  }
+  Window root = GetWinRoot(_disp, e.window);
+  int screen = _roots.at(root).screen;
 
   static const int cols = 120;
   static const int rows = 40;
@@ -924,6 +914,16 @@ void Manager::onKeyClose(const XKeyEvent& e)
     if (c.first != curFocus && !c.second.ign)
       windows.emplace_back(GetWinRect(_disp, c.first) + c.second.absOrigin, c.first);
   switchFocus(closestRectFromPoint(center, windows));
+}
+
+void Manager::onKeyScreenshot(const XKeyEvent& e)
+{
+  int screen = _roots.at(GetWinRoot(_disp, e.window)).screen;
+  std::ostringstream cmd;
+  cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen << " ";
+  cmd << "import \"${HOME}/screenshot-$(date '+%Y-%m-%d::%H:%M:%S').png\" &";
+  LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
+  system(cmd.str().c_str());
 }
 
 void Manager::snapGrid(Window w, Rect r)
