@@ -84,6 +84,8 @@ Manager::~Manager()
 
 bool Manager::init()
 {
+  system("pactl upload-sample /usr/share/sounds/freedesktop/stereo/bell.oga bell.oga");
+
   XSetErrorHandler(&XError);
 
   _disp = XOpenDisplay(_argDisp.c_str());
@@ -432,17 +434,21 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  //TODO: Play beep and/or show volume bar of some kind
   if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioMute)) {
     system("pactl set-sink-mute @DEFAULT_SINK@ toggle");
+    system("pactl play-sample bell.oga");
     return;
   }
   if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioRaiseVolume)) {
     system("pactl set-sink-volume @DEFAULT_SINK@ +1000");
+    system("pactl set-sink-mute @DEFAULT_SINK@ 0");
+    system("pactl play-sample bell.oga");
     return;
   }
   if (e.keycode == XKeysymToKeycode(_disp, XF86XK_AudioLowerVolume)) {
     system("pactl set-sink-volume @DEFAULT_SINK@ -1000");
+    system("pactl set-sink-mute @DEFAULT_SINK@ 0");
+    system("pactl play-sample bell.oga");
     return;
   }
 
