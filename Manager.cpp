@@ -3,10 +3,6 @@
 #include "Log.hpp"
 #include "XUtils.hpp"
 
-#include <X11/cursorfont.h>
-#include <X11/XF86keysym.h>
-#include <X11/extensions/Xrandr.h>
-
 #include <algorithm>
 #include <set>
 #include <string.h>
@@ -54,19 +50,6 @@
 /// j,k             | Decrement/increment vertical grid count
 /// h,l             | Decrement/increment horizontal grid count
 /// Shift + h,j,k,l | Move focus to other monitor
-
-// Static error handler for XLib
-static int XError(Display* display, XErrorEvent* e) {
-  char buf[1024];
-  XGetErrorText(display, e->error_code, buf, sizeof(buf));
-
-  LOG(ERROR) << "X ERROR"
-             << " display=" << DisplayString(display)
-             << " majorOpcode=" << GetXOpcodeStr(e->request_code)
-             << " minorOpcode=" << (int) e->minor_code
-             << " what=(" << buf << ")";
-  return 0;
-}
 
 Manager::Manager(const std::string& display,
                  const std::map<int,Point>& screens)

@@ -86,8 +86,8 @@ class Manager
     void onKeyMoveGridLoc(const XKeyEvent& e);
     void onKeyMoveGridSize(const XKeyEvent& e);
 
-    void     drawGrid(Monitor* mon, bool active);
-    Window   getNextWindowInDir(DIR dir, Window w);
+    void drawGrid(Monitor* mon, bool active);
+    Window getNextWindowInDir(DIR dir, Window w);
 
   private:
 

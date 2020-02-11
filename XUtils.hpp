@@ -1,7 +1,25 @@
 #pragma once
 
+#include <X11/cursorfont.h>
+#include <X11/XF86keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
+#include <X11/extensions/Xrandr.h>
+
+static inline const char* ToString(const XEvent& e);
+static inline const char* GetXOpcodeStr(const unsigned char opcode);
+
+static int XError(Display* display, XErrorEvent* e) {
+  char buf[1024];
+  XGetErrorText(display, e->error_code, buf, sizeof(buf));
+
+  LOG(ERROR) << "X ERROR"
+             << " display=" << DisplayString(display)
+             << " majorOpcode=" << GetXOpcodeStr(e->request_code)
+             << " minorOpcode=" << (int) e->minor_code
+             << " what=(" << buf << ")";
+  return 0;
+}
 
 static inline Rect GetWinRect(Display* disp, Window w)
 {
