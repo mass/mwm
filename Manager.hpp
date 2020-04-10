@@ -79,6 +79,7 @@ class Manager
     void onKeyMaximize(const XKeyEvent& e);
     void onKeyUnmaximize(const XKeyEvent& e);
     void onKeyClose(const XKeyEvent& e);
+    void onKeyLauncher(const XKeyEvent& e);
     void onKeyScreenshot(const XKeyEvent& e);
 
     void snapGrid(Window w, Rect r);

@@ -470,14 +470,8 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyClose(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_P))
     system("slock");
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_A)) {
-    std::ostringstream cmd;
-    cmd << "j4-dmenu-desktop";
-    cmd << " --dmenu=\"dmenu -i -p 'mwm' -l 25 -c -w " << e.window << "\"";
-    cmd << " --term=\"st\"";
-    cmd << " >/dev/null 2>&1 &";
-    system(cmd.str().c_str());
-  }
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_A))
+    onKeyLauncher(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_O))
     onKeyScreenshot(e);
   else {
@@ -903,6 +897,18 @@ void Manager::onKeyClose(const XKeyEvent& e)
     if (c.first != curFocus && !c.second.ign)
       windows.emplace_back(GetWinRect(_disp, c.first) + c.second.absOrigin, c.first);
   switchFocus(closestRectFromPoint(center, windows));
+}
+
+void Manager::onKeyLauncher(const XKeyEvent& e)
+{
+  int screen = _roots.at(GetWinRoot(_disp, e.window)).screen;
+  std::ostringstream cmd;
+  cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen << " ";
+  cmd << "j4-dmenu-desktop";
+  cmd << " --dmenu=\"dmenu -i -p 'mwm' -l 25 -c -w " << e.window << "\"";
+  cmd << " --term=\"st\"";
+  cmd << " >/dev/null 2>&1 &";
+  system(cmd.str().c_str());
 }
 
 void Manager::onKeyScreenshot(const XKeyEvent& e)
