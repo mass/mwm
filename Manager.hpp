@@ -52,7 +52,8 @@ class Manager
   public:
 
     Manager(const std::string& display,
-            const std::map<int,Point>& screens);
+            const std::map<int,Point>& screens,
+            const std::string& screenshotDir);
     ~Manager();
 
     bool init();
@@ -94,6 +95,7 @@ class Manager
 
     const std::string& _argDisp;
     const std::map<int,Point>& _argScreens;
+    const std::string& _argScreenshotDir;
 
     Display* _disp = nullptr;
     std::map<Window, Client> _clients;

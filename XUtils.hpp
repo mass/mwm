@@ -6,16 +6,23 @@
 #include <X11/Xproto.h>
 #include <X11/extensions/Xrandr.h>
 
-static inline const char* ToString(const XEvent& e);
-static inline const char* GetXOpcodeStr(const unsigned char opcode);
+#include <cstring>
 
-static int XError(Display* display, XErrorEvent* e) {
-  char buf[1024];
+constexpr static inline const char* XEventToString(const XEvent& e);
+constexpr static inline const char* XOpcodeToString(const unsigned char opcode);
+static inline int XError(Display* display, XErrorEvent* e);
+static inline Rect GetWinRect(Display* disp, Window w);
+static inline Window GetWinRoot(Display* disp, Window w);
+
+////////////////////////////////////////////////////////////////////////////////
+
+static inline int XError(Display* display, XErrorEvent* e) {
+  char buf[4096];
+  ::memset(buf, 0, sizeof(buf));
   XGetErrorText(display, e->error_code, buf, sizeof(buf));
-
   LOG(ERROR) << "X ERROR"
              << " display=" << DisplayString(display)
-             << " majorOpcode=" << GetXOpcodeStr(e->request_code)
+             << " majorOpcode=" << XOpcodeToString(e->request_code)
              << " minorOpcode=" << (int) e->minor_code
              << " what=(" << buf << ")";
   return 0;
@@ -25,23 +32,23 @@ static inline Rect GetWinRect(Display* disp, Window w)
 {
   XWindowAttributes attr;
   if (XGetWindowAttributes(disp, w, &attr) == 0)
-    return {};
-  return {attr.x, attr.y, attr.width, attr.height};
+    return Rect();
+  return Rect(attr.x, attr.y, attr.width, attr.height);
 }
 
-static inline Window GetWinRoot(Display* _disp, Window w)
+static inline Window GetWinRoot(Display* disp, Window w)
 {
   Window root, parent;
-  Window* children;
+  Window* children = nullptr;
   uint32_t num;
-  if (XQueryTree(_disp, w, &root, &parent, &children, &num) == 0)
-    return 0;
-  return root;
+  const auto ret = XQueryTree(disp, w, &root, &parent, &children, &num);
+  XFree(children);
+  return (ret != 0) ? root : 0;
 }
 
-static inline const char* ToString(const XEvent& e)
+constexpr static inline const char* XEventToString(const XEvent& e)
 {
-  static const char* const X_EVENT_TYPE_NAMES[] = {
+  constexpr const char* const X_EVENT_TYPE_NAMES[] = {
       "Undefined",
       "Undefined",
       "KeyPress",
@@ -85,9 +92,9 @@ static inline const char* ToString(const XEvent& e)
   return X_EVENT_TYPE_NAMES[e.type];
 }
 
-static inline const char* GetXOpcodeStr(const unsigned char opcode)
+constexpr static inline const char* XOpcodeToString(const unsigned char opcode)
 {
-  static const char* const X_REQ_OPCODE_NAMES[] = {
+  constexpr const char* const X_REQ_OPCODE_NAMES[] = {
     "Undefined",
     "X_CreateWindow",
     "X_ChangeWindowAttributes",

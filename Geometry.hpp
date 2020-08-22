@@ -12,7 +12,7 @@ enum class DIR
   Down,
   Left,
   Right,
-  Last
+  LAST
 };
 
 struct Point
@@ -131,7 +131,7 @@ inline T closestRectFromPoint(const Point& p, const std::vector<std::pair<Rect, 
 template<typename T>
 inline T getNextPointInDir(DIR dir, const Point& c, const std::vector<std::pair<Point, T>>& points)
 {
-  if (dir == DIR::Last)
+  if (dir == DIR::LAST)
     return 0;
 
   T closest = 0;

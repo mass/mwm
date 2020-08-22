@@ -5,20 +5,16 @@
 #include <iostream>
 #include <map>
 #include <sstream>
-#include <string>
 #include <sys/time.h>
 
 enum Severity {INFO, WARN, ERROR};
 
-static std::map<Severity, const char*> SeverityString = {
+static const std::map<Severity, const char*> SeverityString = {
   {INFO, "I"},
   {WARN, "W"},
   {ERROR, "E"}
 };
 
-static struct timeval tv;
-
-#define LOGB()  (Log::newline())
 #define LOG(s) (Log(s))
 
 /**
@@ -28,14 +24,10 @@ class Log
 {
   public:
 
-    inline static void newline()
-    {
-      std::cout << std::endl;
-    };
-
     // Print log header in constructor
     Log(Severity s)
     {
+      struct timeval tv;
       gettimeofday(&tv, nullptr);
 
       _stream << "[" << SeverityString.at(s) << "] ";
@@ -64,8 +56,8 @@ class Log
     }
 
     // Log operator specification for name-value pairs
-    template<typename T>
-    inline Log& operator<<(const std::pair<T,T>& p)
+    template<typename T, typename U>
+    inline Log& operator<<(const std::pair<T,U>& p)
     {
       _stream << " " << p.first << "=(" << p.second << ")";
       return *this;

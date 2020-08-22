@@ -52,9 +52,11 @@
 /// Shift + h,j,k,l | Move focus to other monitor
 
 Manager::Manager(const std::string& display,
-                 const std::map<int,Point>& screens)
+                 const std::map<int,Point>& screens,
+                 const std::string& screenshotDir)
   : _argDisp(display)
   , _argScreens(screens)
+  , _argScreenshotDir(screenshotDir)
 {}
 
 Manager::~Manager()
@@ -234,7 +236,7 @@ void Manager::run()
   for (;;) {
     XEvent e;
     XNextEvent(_disp, &e);
-    //LOG(INFO) << "type=" << ToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
+    //LOG(INFO) << "type=" << XEventToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
 
     switch (e.type) {
       // Ignore these events
@@ -282,7 +284,7 @@ void Manager::run()
 
       default:
         LOG(ERROR) << "XEvent not yet handled type=" << e.type
-                   << " event=(" << ToString(e) << ")";
+                   << " event=(" << XEventToString(e) << ")";
         break;
     }
   }
@@ -519,14 +521,14 @@ void Manager::onBtnPress(const XButtonEvent& e)
 
     auto near = [] (int p2, int p1) -> bool { return std::max(0, p2 - p1) < 50; };
 
-    _drag.dirHorz = DIR::Last;
+    _drag.dirHorz = DIR::LAST;
     if (near(click.x, attr.x)) {
       _drag.dirHorz = DIR::Left;
     } else if (near(attr.x + attr.width, click.x)) {
       _drag.dirHorz = DIR::Right;
     }
 
-    _drag.dirVert = DIR::Last;
+    _drag.dirVert = DIR::LAST;
     if (near(click.y, attr.y)) {
       _drag.dirVert = DIR::Up;
     } else if (near(attr.y + attr.height, click.y)) {
@@ -781,7 +783,9 @@ void Manager::onKeyMoveFocus(const XKeyEvent& e)
 
   Window curFocus; int curRevert;
   XGetInputFocus(_disp, &curFocus, &curRevert);
-  if (_clients.find(curFocus) == end(_clients))
+  if (curFocus == PointerRoot || curFocus == None)
+    curFocus = _roots.begin()->first;
+  else if (_clients.find(curFocus) == end(_clients))
     curFocus = GetWinRoot(_disp, curFocus);
 
   Window nextFocus = getNextWindowInDir(dir, curFocus);
@@ -916,7 +920,7 @@ void Manager::onKeyScreenshot(const XKeyEvent& e)
   int screen = _roots.at(GetWinRoot(_disp, e.window)).screen;
   std::ostringstream cmd;
   cmd << "DISPLAY=" << DisplayString(_disp) << "." << screen << " ";
-  cmd << "import \"${HOME}/screenshot-$(date '+%Y-%m-%d::%H:%M:%S').png\" &";
+  cmd << "import \"" << _argScreenshotDir << "/screenshot-$(date '+%Y-%m-%d::%H:%M:%S').png\" &";
   LOG(INFO) << "starting cmd=(" << cmd.str() << ")";
   system(cmd.str().c_str());
 }
