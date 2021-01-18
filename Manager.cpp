@@ -45,6 +45,10 @@
 /// Numlock + P   | Lock the screen
 /// Numlock + A   | Open application menu launcher
 /// Numlock + O   | Open screenshot dialog
+/// Numlock + 1   | Switch monitor 1 input
+/// Numlock + 2   | Switch monitor 1 input
+/// Numlock + 3   | Switch monitor 2 input
+/// Numlock + 4   | Switch monitor 2 input
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -183,7 +187,7 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O };
+  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O, XK_1, XK_2, XK_3, XK_4 };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
@@ -476,6 +480,14 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyLauncher(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_O))
     onKeyScreenshot(e);
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_1))
+    system("ddcutil --sn CNC7200VTN setvcp 0x60 0x10 &");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_2))
+    system("ddcutil --sn CNC7200VTN setvcp 0x60 0x0f &");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_3))
+    system("ddcutil --sn 6KPF413 setvcp 0x60 0x0f &");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_4))
+    system("ddcutil --sn 6KPF413 setvcp 0x60 0x11 &");
   else {
     if (_roots.find(e.window) == _roots.end())
       LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
