@@ -49,6 +49,9 @@
 /// Numlock + 2   | Switch monitor 1 input
 /// Numlock + 3   | Switch monitor 2 input
 /// Numlock + 4   | Switch monitor 2 input
+/// Numlock + Q   | Volume up
+/// Numlock + W   | Volume down
+/// Numlock + E   | Volume toggle mute
 ///
 /// Grid Building Mode
 /// j,k             | Decrement/increment vertical grid count
@@ -187,7 +190,10 @@ void Manager::addClient(Window w, bool checkIgn)
               GrabModeAsync, GrabModeAsync, None, None);
 
   // Grab keys with NUMLOCK modifier
-  static const std::set<int> KEYS = { XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O, XK_1, XK_2, XK_3, XK_4 };
+  static const std::set<int> KEYS = {
+    XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O,
+    XK_1, XK_2, XK_3, XK_4, XK_Q, XK_W, XK_E
+  };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
     XGrabKey(_disp, XKeysymToKeycode(_disp, key), NUMLOCK, w, false, GrabModeAsync, GrabModeAsync);
@@ -488,6 +494,20 @@ void Manager::onKeyPress(const XKeyEvent& e)
     system("ddcutil --sn 6KPF413 setvcp 0x60 0x0f &");
   else if (e.keycode == XKeysymToKeycode(_disp, XK_4))
     system("ddcutil --sn 6KPF413 setvcp 0x60 0x11 &");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_Q)) {
+    system("pactl set-sink-volume @DEFAULT_SINK@ +1000");
+    system("pactl set-sink-mute @DEFAULT_SINK@ 0");
+    system("pactl play-sample bell.oga");
+  }
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_W)) {
+    system("pactl set-sink-volume @DEFAULT_SINK@ -1000");
+    system("pactl set-sink-mute @DEFAULT_SINK@ 0");
+    system("pactl play-sample bell.oga");
+  }
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_E)) {
+    system("pactl set-sink-mute @DEFAULT_SINK@ toggle");
+    system("pactl play-sample bell.oga");
+  }
   else {
     if (_roots.find(e.window) == _roots.end())
       LOG(ERROR) << "unhandled keyPress keyCode=" << e.keycode;
