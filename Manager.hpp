@@ -29,6 +29,7 @@ struct Monitor
   unsigned gridX;
   unsigned gridY;
 
+  inline bool isVisible() const { return visible.has_value() && visible.value(); }
   void setVisible(std::optional<bool> visible);
 };
 

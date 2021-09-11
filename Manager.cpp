@@ -253,27 +253,32 @@ void Manager::addClient(Window w, bool checkIgn)
   XSetWindowBorderWidth(_disp, w, BORDER_THICK);
   XSetWindowBorder(_disp, w, BORDER_UNFOCUS);
 
-  // Check to make sure we dont place a new client somewhere off the screens
-  if (std::find_if(begin(_monitors), end(_monitors),
-        [&] (const auto& m) { return m.root == c.root && m.r.contains(Point(attrs.x, attrs.y)); }) ==
-      end(_monitors))
+  // Check to make sure we dont place a new client somewhere off the visible screens
+  if (std::find_if(begin(_monitors), end(_monitors), [&] (const auto& m) {
+        return m.root == c.root &&
+               m.isVisible() &&
+               m.r.contains(Point(attrs.x, attrs.y));
+      }) == end(_monitors))
   {
-    LOG(INFO) << "new client started off the screen, relocating client=" << w;
+    LOG(INFO) << "new client started off visible monitors, relocating client=" << w;
 
     std::vector<std::pair<Rect, Monitor*>> monitors;
     for (auto& m : _monitors)
-      if (c.root == m.root)
+      if (c.root == m.root && m.isVisible())
         monitors.emplace_back(m.r, &m);
     auto* mon = closestRectFromPoint(Point(attrs.x, attrs.y), monitors);
-
-    int curW = std::min(attrs.width + (2 * BORDER_THICK), mon->r.w);
-    int curH = std::min(attrs.height + (2 * BORDER_THICK), mon->r.h);
-    XWindowChanges changes;
-    changes.x = mon->r.getCenter().x - (curW / 2);
-    changes.y = mon->r.getCenter().y - (curH / 2);
-    changes.width = curW - (2 * BORDER_THICK);
-    changes.height = curH - (2 * BORDER_THICK);
-    XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+    if (mon) {
+      int curW = std::min(attrs.width + (2 * BORDER_THICK), mon->r.w);
+      int curH = std::min(attrs.height + (2 * BORDER_THICK), mon->r.h);
+      XWindowChanges changes;
+      changes.x = mon->r.getCenter().x - (curW / 2);
+      changes.y = mon->r.getCenter().y - (curH / 2);
+      changes.width = curW - (2 * BORDER_THICK);
+      changes.height = curH - (2 * BORDER_THICK);
+      XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+    } else {
+      LOG(ERROR) << "nowhere visible to put new client=" << w;
+    }
   }
 
   XMapWindow(_disp, w);
