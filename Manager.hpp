@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DisplayDataChannel.hpp"
 #include "Geometry.hpp"
 
 #include <X11/Xlib.h>
@@ -16,16 +17,28 @@ struct Client
   Point absOrigin;
 };
 
-struct Monitor
+struct MonitorCfg
 {
   std::string name;
+  int screen;
+  std::string connector;
+  uint8_t visibleInput;
+  DDCDisplayId id;
+};
+
+struct Monitor
+{
+  const MonitorCfg& cfg;
   Rect r;
   Window root;
   Point absOrigin;
+  std::optional<bool> visible;
 
   Window gridDraw;
   unsigned gridX;
   unsigned gridY;
+
+  void setVisible(std::optional<bool> visible);
 };
 
 struct Root
@@ -53,7 +66,8 @@ class Manager
 
     Manager(const std::string& display,
             const std::map<int,Point>& screens,
-            const std::string& screenshotDir);
+            const std::string& screenshotDir,
+            const std::map<std::string,MonitorCfg>& monitorCfg);
     ~Manager();
 
     bool init();
@@ -82,6 +96,7 @@ class Manager
     void onKeyClose(const XKeyEvent& e);
     void onKeyLauncher(const XKeyEvent& e);
     void onKeyScreenshot(const XKeyEvent& e);
+    void onKeyMonitorInput(const XKeyEvent& e);
 
     void snapGrid(Window w, Rect r);
     void onKeySnapGrid(const XKeyEvent& e);
@@ -90,17 +105,22 @@ class Manager
 
     void drawGrid(Monitor* mon, bool active);
     Window getNextWindowInDir(DIR dir, Window w);
+    void pollDdc(int64_t now);
 
   private:
 
     const std::string& _argDisp;
     const std::map<int,Point>& _argScreens;
     const std::string& _argScreenshotDir;
+    const std::map<std::string,MonitorCfg>& _argMonitorCfg;
 
     Display* _disp = nullptr;
     std::map<Window, Client> _clients;
     std::map<Window, Root> _roots;
     std::vector<Monitor> _monitors;
+
+    DisplayDataChannel _ddc;
+    int64_t _lastDdcPoll = 0;
 
     Drag _drag = {};
     uint64_t _lastConfigureSerial = 0;

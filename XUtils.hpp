@@ -6,6 +6,7 @@
 #include <X11/Xproto.h>
 #include <X11/extensions/Xrandr.h>
 
+#include <cassert>
 #include <cstring>
 
 constexpr static inline const char* XEventToString(const XEvent& e);
@@ -13,6 +14,7 @@ constexpr static inline const char* XOpcodeToString(const unsigned char opcode);
 static inline int XError(Display* display, XErrorEvent* e);
 static inline Rect GetWinRect(Display* disp, Window w);
 static inline Window GetWinRoot(Display* disp, Window w);
+static inline void DumpXRR(Display* disp, Window root);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -231,4 +233,52 @@ constexpr static inline const char* XOpcodeToString(const unsigned char opcode)
   if (opcode > LAST_ELEM)
     return "Undefined";
   return X_REQ_OPCODE_NAMES[opcode];
+}
+
+static inline void DumpXRR(Display* disp, Window root)
+{
+  auto* res = XRRGetScreenResources(disp, root);
+  assert(res != nullptr);
+
+  LOG(INFO) << "screen resources"
+            << " root=" << root
+            << " n_crtc=" << res->ncrtc
+            << " n_output=" << res->noutput
+            << " n_mode=" << res->nmode;
+
+  for (int i = 0; i < res->ncrtc; ++i) {
+    auto* crtc = XRRGetCrtcInfo(disp, res, res->crtcs[i]);
+    assert(crtc != nullptr);
+    LOG(INFO) << "crtc"
+              << " i=" << i
+              << " xid=" << res->crtcs[i]
+              << " x=" << crtc->x
+              << " y=" << crtc->y
+              << " w=" << crtc->width
+              << " h=" << crtc->height
+              << " rot=" << crtc->rotation
+              << " rots=" << crtc->rotations
+              << " n_output=" << crtc->noutput
+              << " n_possible=" << crtc->npossible;
+
+    for (int j = 0; j < crtc->noutput; ++j) {
+      auto* output = XRRGetOutputInfo(disp, res, crtc->outputs[j]);
+      assert(output != nullptr);
+      LOG(INFO) << "  output"
+                << " j=" << j
+                << " xid=" << crtc->outputs[j]
+                << " name=(" << std::string_view(output->name, output->nameLen) << ")"
+                << " mm_w=" << output->mm_width
+                << " mm_h=" << output->mm_height
+                << " conn=" << output->connection
+                << " subpixelOrder=" << output->subpixel_order
+                << " n_crtc=" << output->ncrtc
+                << " n_clones=" << output->nclone
+                << " n_modes=" << output->nmode
+                << " n_preferred=" << output->npreferred;
+      XRRFreeOutputInfo(output);
+    }
+    XRRFreeCrtcInfo(crtc);
+  }
+  XRRFreeScreenResources(res);
 }

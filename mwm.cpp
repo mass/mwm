@@ -36,7 +36,9 @@ int main(int argc, char* argv[])
     }
   }
 
-  Manager m(display, screens, screenshotDir);
+  LOG(INFO) << "starting mwm";
+
+  Manager m(display, screens, screenshotDir, monitorCfg);
   if (!m.init())
     return EXIT_FAILURE;
   m.run();

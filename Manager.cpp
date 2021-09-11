@@ -4,6 +4,7 @@
 #include "XUtils.hpp"
 
 #include <algorithm>
+#include <poll.h>
 #include <set>
 #include <string.h>
 
@@ -19,6 +20,8 @@
 #define GRID_INACT 0x880000
 #define GRID_COLOR 0x005F87
 #define GRID_BG    0x181818
+
+static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Notes
@@ -60,10 +63,12 @@
 
 Manager::Manager(const std::string& display,
                  const std::map<int,Point>& screens,
-                 const std::string& screenshotDir)
+                 const std::string& screenshotDir,
+                 const std::map<std::string,MonitorCfg>& monitorCfg)
   : _argDisp(display)
   , _argScreens(screens)
   , _argScreenshotDir(screenshotDir)
+  , _argMonitorCfg(monitorCfg)
 {}
 
 Manager::~Manager()
@@ -77,6 +82,12 @@ Manager::~Manager()
 bool Manager::init()
 {
   system("pactl upload-sample /usr/share/sounds/freedesktop/stereo/bell.oga bell.oga");
+
+  std::vector<DDCDisplayId> expectedMonitors;
+  for (const auto& [_,mon] : _argMonitorCfg)
+    expectedMonitors.push_back(mon.id);
+  if (!_ddc.init(expectedMonitors))
+    return false;
 
   XSetErrorHandler(&XError);
 
@@ -113,31 +124,55 @@ bool Manager::init()
     XDefineCursor(_disp, root, cursor);
 
     // Identify monitors on this X screen
-    XRRScreenResources* res = XRRGetScreenResourcesCurrent(_disp, root);
-    for (int j = 0; j < res->noutput; ++j) {
-      XRROutputInfo* monitor = XRRGetOutputInfo(_disp, res, res->outputs[j]);
-      if (monitor->connection)
-        continue; // No monitor plugged in
-      XRRCrtcInfo* crtc = XRRGetCrtcInfo(_disp, res, monitor->crtc);
-      LOG(INFO) << "found monitor for"
-                << " screen=" << i
-                << " name=" << monitor->name
-                << " width=" << crtc->width
-                << " height=" << crtc->height
-                << " xPos=" << crtc->x
-                << " yPos=" << crtc->y;
-      Monitor m;
-      m.r.o.x = crtc->x;
-      m.r.o.y = crtc->y;
-      m.r.w = crtc->width;
-      m.r.h = crtc->height;
-      m.name = monitor->name;
-      m.root = root;
-      m.gridDraw = 0;
-      m.gridX = 1;
-      m.gridY = 1;
-      m.absOrigin = _argScreens.at(i);
-      _monitors.push_back(m);
+    {
+      bool success = true;
+
+      auto* res = XRRGetScreenResources(_disp, root);
+      assert(res != nullptr);
+      for (int j = 0; j < res->ncrtc && success; ++j) {
+        auto* crtc = XRRGetCrtcInfo(_disp, res, res->crtcs[j]);
+        assert(crtc != nullptr);
+        Rect rect{crtc->x, crtc->y, int(crtc->width), int(crtc->height)};
+        for (int k = 0; k < crtc->noutput && success; ++k) {
+          auto* output = XRRGetOutputInfo(_disp, res, crtc->outputs[k]);
+          assert(output != nullptr);
+          std::string_view connector(output->name, output->nameLen);
+
+          auto it = std::find_if(_argMonitorCfg.begin(), _argMonitorCfg.end(),
+              [&] (const auto& m) { return m.second.screen == i && m.second.connector == connector; });
+          if (it == _argMonitorCfg.end()) {
+            LOG(ERROR) << "missing config for monitor screen=" << i << " connector=(" << connector << ")";
+            success = false;
+          } else {
+            auto jt = std::find_if(_monitors.begin(), _monitors.end(),
+                [&] (const auto& mon) { return mon.cfg.name == it->second.name; });
+            if (jt != _monitors.end()) {
+              LOG(ERROR) << "duplicate monitor config screen=" << i
+                         << " connector=(" << connector << ")"
+                         << " name=(" << it->second.name << ")";
+              success = false;
+            } else {
+              LOG(INFO) << "found monitor"
+                        << " name=(" << it->second.name << ")"
+                        << " screen=" << i
+                        << " connector=(" << connector << ")"
+                        << " width=" << rect.w
+                        << " height=" << rect.h
+                        << " xPos=" << rect.o.x
+                        << " yPos=" << rect.o.y;
+              _monitors.emplace_back(Monitor{it->second, rect, root, _argScreens.at(i), std::nullopt, 0, 1, 1});
+            }
+          }
+          XRRFreeOutputInfo(output);
+        }
+        XRRFreeCrtcInfo(crtc);
+      }
+      XRRFreeScreenResources(res);
+
+      if (!success) {
+        LOG(ERROR) << "unable to identify monitors on this screen=" << i;
+        return false;
+      }
     }
 
     // Add pre-existing windows on this screen
@@ -148,6 +183,11 @@ bool Manager::init()
       addClient(children[j], true);
     XFree(children);
     XUngrabServer(_disp);
+  }
+
+  if (_monitors.size() != _argMonitorCfg.size()) {
+    LOG(ERROR) << "did not detect all configured monitors";
+    return false;
   }
 
   return true;
@@ -242,60 +282,72 @@ void Manager::addClient(Window w, bool checkIgn)
 
 void Manager::run()
 {
+  struct pollfd pfd;
+  pfd.fd = ConnectionNumber(_disp);
+  pfd.events = POLLIN;
+
   // Main event loop
   for (;;) {
-    XEvent e;
-    XNextEvent(_disp, &e);
-    //LOG(INFO) << "type=" << XEventToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
+    ::poll(&pfd, 1, 10); // Sleep until there are events or until the timeout
+    const int64_t now = getTime();
 
-    switch (e.type) {
-      // Ignore these events
-      case ReparentNotify:
-      case MapNotify:
-      case MappingNotify:
-      case ConfigureNotify:
-      case CreateNotify:
-      case DestroyNotify:
-      case KeyRelease:
-        break;
+    if (now - _lastDdcPoll > DDC_POLL_INTERVAL)
+      pollDdc(now);
 
-      case MapRequest:
-        onReq_Map(e.xmaprequest);
-        break;
-      case UnmapNotify:
-        onNot_Unmap(e.xunmap);
-        break;
-      case ConfigureRequest:
-        onReq_Configure(e.xconfigurerequest);
-        break;
+    while (XPending(_disp)) {
+      XEvent e;
+      XNextEvent(_disp, &e);
+      //LOG(INFO) << "type=" << XEventToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
 
-      case MotionNotify:
-        while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
-        onNot_Motion(e.xbutton);
-        break;
+      switch (e.type) {
+        // Ignore these events
+        case ReparentNotify:
+        case MapNotify:
+        case MappingNotify:
+        case ConfigureNotify:
+        case CreateNotify:
+        case DestroyNotify:
+        case KeyRelease:
+          break;
 
-      case FocusIn:
-        handleFocusChange(e.xfocus, true);
-        break;
-      case FocusOut:
-        handleFocusChange(e.xfocus, false);
-        break;
+        case MapRequest:
+          onReq_Map(e.xmaprequest);
+          break;
+        case UnmapNotify:
+          onNot_Unmap(e.xunmap);
+          break;
+        case ConfigureRequest:
+          onReq_Configure(e.xconfigurerequest);
+          break;
 
-      case KeyPress:
-        onKeyPress(e.xkey);
-        break;
-      case ButtonPress:
-        onBtnPress(e.xbutton);
-        break;
+        case MotionNotify:
+          while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
+          onNot_Motion(e.xbutton);
+          break;
 
-      case ClientMessage:
-        onClientMessage(e.xclient);
-        break;
+        case FocusIn:
+          handleFocusChange(e.xfocus, true);
+          break;
+        case FocusOut:
+          handleFocusChange(e.xfocus, false);
+          break;
 
-      default:
-        LOG(ERROR) << "XEvent not yet handled type=" << e.type
-                   << " event=(" << XEventToString(e) << ")";
-        break;
+        case KeyPress:
+          onKeyPress(e.xkey);
+          break;
+        case ButtonPress:
+          onBtnPress(e.xbutton);
+          break;
+
+        case ClientMessage:
+          onClientMessage(e.xclient);
+          break;
+
+        default:
+          LOG(ERROR) << "XEvent not yet handled type=" << e.type
+                     << " event=(" << XEventToString(e) << ")";
+          break;
+      }
     }
   }
 }
@@ -486,14 +538,11 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyLauncher(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_O))
     onKeyScreenshot(e);
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_1))
-    system("ddcutil --sn CNC7200VTN setvcp 0x60 0x10 &");
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_2))
-    system("ddcutil --sn CNC7200VTN setvcp 0x60 0x0f &");
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_3))
-    system("ddcutil --sn 6KPF413 setvcp 0x60 0x0f &");
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_4))
-    system("ddcutil --sn 6KPF413 setvcp 0x60 0x11 &");
+  else if (e.keycode == XKeysymToKeycode(_disp, XK_1) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_2) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_3) ||
+           e.keycode == XKeysymToKeycode(_disp, XK_4))
+    onKeyMonitorInput(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_Q)) {
     system("pactl set-sink-volume @DEFAULT_SINK@ +1000");
     system("pactl set-sink-mute @DEFAULT_SINK@ 0");
@@ -1075,6 +1124,34 @@ void Manager::onKeyMoveGridSize(const XKeyEvent& e)
   snapGrid(e.window, loc);
 }
 
+void Manager::onKeyMonitorInput(const XKeyEvent& e)
+{
+  const DDCDisplayId* id;
+  uint8_t source;
+  if (e.keycode == XKeysymToKeycode(_disp, XK_1)) {
+    id = &(_argMonitorCfg.at("Left").id);
+    source = 0x1b;
+  } else if (e.keycode == XKeysymToKeycode(_disp, XK_2)) {
+    id = &(_argMonitorCfg.at("Left").id);
+    source = 0x0f;
+  } else if (e.keycode == XKeysymToKeycode(_disp, XK_3)) {
+    id = &(_argMonitorCfg.at("Main").id);
+    source = 0x11;
+  }  else if (e.keycode == XKeysymToKeycode(_disp, XK_4)) {
+    id = &(_argMonitorCfg.at("Main").id);
+    source = 0x0f;
+  } else
+    return;
+
+  auto it = std::find_if(begin(_monitors), end(_monitors),
+                         [&] (const auto& m) { return m.cfg.id == *id; });
+  if (it == _monitors.end())
+    return;
+
+  _ddc.setSource(*id, source);
+  pollDdc(getTime());
+}
+
 /// Utils //////////////////////////////////////////////////////////////////////
 
 void Manager::drawGrid(Monitor* mon, bool active)
@@ -1116,4 +1193,30 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
 
   auto closest = getNextPointInDir(dir, c, windows);
   return closest ? closest : w;
+}
+
+void Monitor::setVisible(std::optional<bool> v)
+{
+  if (this->visible != v)
+    LOG(INFO) << "updated monitor visibility name=(" << this->cfg.name << ")"
+              << " visible=(" << (v.has_value() ? (v.value() ? "true" : "false") : "unknown") << ")";
+  this->visible = v;
+}
+
+void Manager::pollDdc(int64_t now)
+{
+  if (_ddc.poll()) {
+    _lastDdcPoll = now;
+    for (auto& mon : _monitors) {
+      auto source = _ddc.getSource(mon.cfg.id);
+      if (source.has_value())
+        mon.setVisible(source.value() == mon.cfg.visibleInput);
+      else
+        mon.setVisible(std::nullopt);
+    }
+  } else {
+    _lastDdcPoll = now - int64_t(DDC_POLL_INTERVAL * 0.9); // Retry soon
+    for (auto& mon : _monitors)
+      mon.setVisible(std::nullopt);
+  }
 }

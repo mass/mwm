@@ -17,6 +17,13 @@ static const std::map<Severity, const char*> SeverityString = {
 
 #define LOG(s) (Log(s))
 
+inline static int64_t getTime()
+{
+  struct timeval tv;
+  ::gettimeofday(&tv, nullptr);
+  return (tv.tv_sec * 1000000000L) + (tv.tv_usec * 1000L);
+}
+
 /**
  * Simple class for logging messages
  */
