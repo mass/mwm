@@ -16,7 +16,7 @@ static inline Rect GetWinRect(Display* disp, Window w);
 static inline Window GetWinRoot(Display* disp, Window w);
 static inline void DumpXRR(Display* disp, Window root);
 
-////////////////////////////////////////////////////////////////////////////////
+/// Implementation /////////////////////////////////////////////////////////////
 
 static inline int XError(Display* display, XErrorEvent* e) {
   char buf[4096];

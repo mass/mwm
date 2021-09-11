@@ -8,15 +8,6 @@
 #include <map>
 #include <vector>
 
-struct Client
-{
-  Window client;
-  Window root;
-  Rect preMax;
-  bool ign;
-  Point absOrigin;
-};
-
 struct MonitorCfg
 {
   std::string name;
@@ -47,6 +38,15 @@ struct Root
   Point absOrigin;
 };
 
+struct Client
+{
+  Window client;
+  Window root;
+  Rect preMax;
+  bool ign;
+  Point absOrigin;
+};
+
 struct Drag
 {
   Window w = 0;
@@ -71,24 +71,23 @@ class Manager
     ~Manager();
 
     bool init();
-    void addClient(Window w, bool checkIgn);
     void run();
 
+  private:
+
+    // X server events
     void onReq_Map(const XMapRequestEvent& e);
     void onNot_Unmap(const XUnmapEvent& e);
     void onReq_Configure(const XConfigureRequestEvent& e);
     void onNot_Motion(const XButtonEvent& e);
+    void handleFocusChange(const XFocusChangeEvent& e, bool in);
     void onKeyPress(const XKeyEvent& e);
     void onBtnPress(const XButtonEvent& e);
     void onClientMessage(const XClientMessageEvent& e);
 
-    void switchFocus(Window w);
-    void handleFocusChange(const XFocusChangeEvent& e, bool in);
-
-    void onKeyGridActive(const XKeyEvent& e);
+    // Keypress handlers
     void onKeyWinExplorer(const XKeyEvent& e);
     void onKeyTerminal(const XKeyEvent& e);
-    void onKeyGrid(const XKeyEvent& e);
     void onKeyMoveMonitor(const XKeyEvent& e);
     void onKeyMoveFocus(const XKeyEvent& e);
     void onKeyMaximize(const XKeyEvent& e);
@@ -97,17 +96,19 @@ class Manager
     void onKeyLauncher(const XKeyEvent& e);
     void onKeyScreenshot(const XKeyEvent& e);
     void onKeyMonitorInput(const XKeyEvent& e);
-
-    void snapGrid(Window w, Rect r);
+    void onKeyGrid(const XKeyEvent& e);
+    void onKeyGridActive(const XKeyEvent& e);
     void onKeySnapGrid(const XKeyEvent& e);
     void onKeyMoveGridLoc(const XKeyEvent& e);
     void onKeyMoveGridSize(const XKeyEvent& e);
 
+    // Misc
+    void pollDdc(int64_t now);
+    void addClient(Window w, bool checkIgn);
+    void switchFocus(Window w);
+    void snapGrid(Window w, Rect r);
     void drawGrid(Monitor* mon, bool active);
     Window getNextWindowInDir(DIR dir, Window w);
-    void pollDdc(int64_t now);
-
-  private:
 
     const std::string& _argDisp;
     const std::map<int,Point>& _argScreens;

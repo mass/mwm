@@ -47,7 +47,7 @@ static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
 /// Numlock + Tab | TODO: Window explorer mode
 /// Numlock + P   | Lock the screen
 /// Numlock + A   | Open application menu launcher
-/// Numlock + O   | Open screenshot dialog
+/// Numlock + O   | Open screenshot program
 /// Numlock + 1   | Switch monitor 1 input
 /// Numlock + 2   | Switch monitor 1 input
 /// Numlock + 3   | Switch monitor 2 input
