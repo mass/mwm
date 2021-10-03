@@ -1,7 +1,8 @@
 #include "Manager.hpp"
 
-#include "Log.hpp"
 #include "XUtils.hpp"
+
+#include <m/log.hpp>
 
 #include <algorithm>
 #include <poll.h>
@@ -294,7 +295,7 @@ void Manager::run()
   // Main event loop
   for (;;) {
     ::poll(&pfd, 1, 10); // Sleep until there are events or until the timeout
-    const int64_t now = getTime();
+    const int64_t now = m::now();
 
     if (now - _lastDdcPoll > DDC_POLL_INTERVAL)
       pollDdc(now);
@@ -1154,7 +1155,7 @@ void Manager::onKeyMonitorInput(const XKeyEvent& e)
     return;
 
   _ddc.setSource(*id, source);
-  pollDdc(getTime());
+  pollDdc(m::now());
 }
 
 /// Utils //////////////////////////////////////////////////////////////////////

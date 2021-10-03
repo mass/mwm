@@ -1,9 +1,8 @@
 #pragma once
 
-#include "Log.hpp"
-
 #include <ddcutil_c_api.h>
 #include <ddcutil_status_codes.h>
+#include <m/log.hpp>
 
 #include <algorithm>
 #include <map>
