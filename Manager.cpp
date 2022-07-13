@@ -65,11 +65,13 @@ static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
 Manager::Manager(const std::string& display,
                  const std::map<int,Point>& screens,
                  const std::string& screenshotDir,
-                 const std::map<std::string,MonitorCfg>& monitorCfg)
+                 const std::map<std::string,MonitorCfg>& monitorCfg,
+                 const bool useDdc)
   : _argDisp(display)
   , _argScreens(screens)
   , _argScreenshotDir(screenshotDir)
   , _argMonitorCfg(monitorCfg)
+  , _argUseDdc(useDdc)
 {}
 
 Manager::~Manager()
@@ -84,11 +86,13 @@ bool Manager::init()
 {
   system("pactl upload-sample /usr/share/sounds/freedesktop/stereo/bell.oga bell.oga");
 
-  std::vector<DDCDisplayId> expectedMonitors;
-  for (const auto& [_,mon] : _argMonitorCfg)
-    expectedMonitors.push_back(mon.id);
-  if (!_ddc.init(expectedMonitors))
-    return false;
+  if (_argUseDdc) {
+    std::vector<DDCDisplayId> expectedMonitors;
+    for (const auto& [_,mon] : _argMonitorCfg)
+      expectedMonitors.push_back(mon.id);
+    if (!_ddc.init(expectedMonitors))
+      return false;
+  }
 
   XSetErrorHandler(&XError);
 
@@ -197,6 +201,10 @@ bool Manager::init()
     return false;
   }
 
+  if (not _argUseDdc)
+    for (auto& mon : _monitors)
+      mon.setVisible(true);
+
   return true;
 }
 
@@ -303,7 +311,7 @@ void Manager::run()
     ::poll(&pfd, 1, 10); // Sleep until there are events or until the timeout
     const int64_t now = m::now();
 
-    if (now - _lastDdcPoll > DDC_POLL_INTERVAL)
+    if (_argUseDdc && now - _lastDdcPoll > DDC_POLL_INTERVAL)
       pollDdc(now);
 
     while (XPending(_disp)) {
@@ -1138,6 +1146,9 @@ void Manager::onKeyMoveGridSize(const XKeyEvent& e)
 
 void Manager::onKeyMonitorInput(const XKeyEvent& e)
 {
+  if (not _argUseDdc)
+    return;
+
   const DDCDisplayId* id;
   uint8_t source;
   if (e.keycode == XKeysymToKeycode(_disp, XK_1)) {

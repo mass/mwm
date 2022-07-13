@@ -68,7 +68,8 @@ class Manager
     Manager(const std::string& display,
             const std::map<int,Point>& screens,
             const std::string& screenshotDir,
-            const std::map<std::string,MonitorCfg>& monitorCfg);
+            const std::map<std::string,MonitorCfg>& monitorCfg,
+            const bool useDdc);
     ~Manager();
 
     bool init();
@@ -115,6 +116,7 @@ class Manager
     const std::map<int,Point>& _argScreens;
     const std::string& _argScreenshotDir;
     const std::map<std::string,MonitorCfg>& _argMonitorCfg;
+    const bool _argUseDdc;
 
     Display* _disp = nullptr;
     std::map<Window, Client> _clients;
