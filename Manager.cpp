@@ -176,6 +176,12 @@ bool Manager::init()
       }
     }
 
+    // Start with focus on root window of first screen
+    if (i == 0) {
+      switchFocus(root);
+      _lastFocus = root;
+    }
+
     // Add pre-existing windows on this screen
     XGrabServer(_disp);
     Window root2, parent; Window* children; uint32_t num;
