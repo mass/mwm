@@ -283,15 +283,23 @@ void Manager::addClient(Window w, bool checkIgn)
     if (mon) {
       int curW = std::min(attrs.width + (2 * BORDER_THICK), mon->r.w);
       int curH = std::min(attrs.height + (2 * BORDER_THICK), mon->r.h);
+      bool border = curW != mon->r.w || curH != mon->r.h;
       XWindowChanges changes;
       changes.x = mon->r.getCenter().x - (curW / 2);
       changes.y = mon->r.getCenter().y - (curH / 2);
-      changes.width = curW - (2 * BORDER_THICK);
-      changes.height = curH - (2 * BORDER_THICK);
+      changes.width = curW - ((border ? 2 : 0) * BORDER_THICK);
+      changes.height = curH - ((border ? 2 : 0) * BORDER_THICK);
       XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+      XSetWindowBorderWidth(_disp, w, border ? BORDER_THICK : 0);
     } else {
       LOG(ERROR) << "nowhere visible to put new client=" << w;
     }
+  } else {
+    // Hide border if new window is already maximized to a monitor
+    Rect rect(attrs.x, attrs.y, attrs.width, attrs.height);
+    bool border = std::none_of(begin(_monitors), end(_monitors),
+        [&] (const auto& m) { return m.root == c.root && m.r == rect; });
+    XSetWindowBorderWidth(_disp, w, border ? BORDER_THICK : 0);
   }
 
   XMapWindow(_disp, w);
@@ -430,6 +438,17 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
 
   XConfigureWindow(_disp, e.window, changeMask, &changes);
 
+  // Hide border if newly-placed window is maximized to a monitor
+  {
+    XWindowAttributes attrs;
+    XGetWindowAttributes(_disp, e.window, &attrs);
+    auto root = GetWinRoot(_disp, e.window);
+    Rect rect(attrs.x, attrs.y, attrs.width, attrs.height);
+    bool border = std::none_of(begin(_monitors), end(_monitors),
+        [&] (const auto& m) { return m.root == root && m.r == rect; });
+    XSetWindowBorderWidth(_disp, e.window, border ? BORDER_THICK : 0);
+  }
+
   _lastConfigureSerial = e.serial;
 }
 
@@ -450,6 +469,7 @@ void Manager::onNot_Motion(const XButtonEvent& e)
   if (_drag.btn == 1) {
     // Alt-LeftClick moves window around
     XMoveWindow(_disp, client, _drag.x + xdiff, _drag.y + ydiff);
+    XSetWindowBorderWidth(_disp, client, BORDER_THICK);
   }
   else if (_drag.btn == 3) {
     // Alt-RightClick resizes
@@ -483,6 +503,7 @@ void Manager::onNot_Motion(const XButtonEvent& e)
         break;
     }
     XMoveResizeWindow(_disp, client, nx, ny, nw, nh);
+    XSetWindowBorderWidth(_disp, client, BORDER_THICK);
   }
 }
 
@@ -858,14 +879,16 @@ void Manager::onKeyMoveMonitor(const XKeyEvent& e)
 
   int w = std::min(cur.w + (2 * BORDER_THICK), m->r.w);
   int h = std::min(cur.h + (2 * BORDER_THICK), m->r.h);
+  bool border = w != m->r.w || h != m->r.h;
 
   XWindowChanges changes;
   changes.x = m->r.getCenter().x - (w / 2);
   changes.y = m->r.getCenter().y - (h / 2);
-  changes.width = w - (2 * BORDER_THICK);
-  changes.height = h - (2 * BORDER_THICK);
+  changes.width = w - ((border ? 2 : 0) * BORDER_THICK);
+  changes.height = h - ((border ? 2 : 0) * BORDER_THICK);
 
   XConfigureWindow(_disp, e.window, (CWX | CWY | CWWidth | CWHeight), &changes);
+  XSetWindowBorderWidth(_disp, e.window, border ? BORDER_THICK : 0);
 }
 
 void Manager::onKeyMoveFocus(const XKeyEvent& e)
@@ -922,10 +945,7 @@ void Manager::onKeyMaximize(const XKeyEvent& e)
   }
   auto& mon = *it2;
 
-  auto nw = mon.r.w - (2 * BORDER_THICK);
-  auto nh = mon.r.h - (2 * BORDER_THICK);
-
-  if (attr.width == nw && attr.height == nh)
+  if (attr.width == mon.r.w && attr.height == mon.r.h)
     return;
 
   client.preMax.o.x = attr.x;
@@ -936,9 +956,11 @@ void Manager::onKeyMaximize(const XKeyEvent& e)
   XWindowChanges changes;
   changes.x = mon.r.o.x;
   changes.y = mon.r.o.y;
-  changes.width = nw;
-  changes.height = nh;
+  changes.width = mon.r.w;
+  changes.height = mon.r.h;
   XConfigureWindow(_disp, client.client, (CWX | CWY | CWWidth | CWHeight), &changes);
+
+  XSetWindowBorderWidth(_disp, client.client, 0);
 }
 
 void Manager::onKeyUnmaximize(const XKeyEvent& e)
@@ -973,6 +995,7 @@ void Manager::onKeyUnmaximize(const XKeyEvent& e)
   client.preMax.h = 0;
 
   XConfigureWindow(_disp, client.client, (CWX | CWY | CWWidth | CWHeight), &changes);
+  XSetWindowBorderWidth(_disp, client.client, BORDER_THICK);
 }
 
 void Manager::onKeyClose(const XKeyEvent& e)
@@ -1038,10 +1061,11 @@ void Manager::snapGrid(Window w, Rect r)
 
   double gridW = double(mon.r.w) / mon.gridX;
   double gridH = double(mon.r.h) / mon.gridY;
-  int xNum = std::max(1, (int) round(double(r.w) / gridW));
-  int yNum = std::max(1, (int) round(double(r.h) / gridH));
+  auto xNum = std::max(1u, (unsigned) round(double(r.w) / gridW));
+  auto yNum = std::max(1u, (unsigned) round(double(r.h) / gridH));
   auto widX = int(xNum * gridW);
   auto widY = int(yNum * gridH);
+  bool border = xNum != mon.gridX || yNum != mon.gridY;
 
   int minX;
   int minDist = INT_MAX;
@@ -1066,11 +1090,13 @@ void Manager::snapGrid(Window w, Rect r)
   }
 
   XWindowChanges changes;
-  changes.width = widX - (2 * BORDER_THICK);
-  changes.height = widY - (2 * BORDER_THICK);
+  changes.width = widX - ((border ? 2 : 0) * BORDER_THICK);
+  changes.height = widY - ((border ? 2 : 0) * BORDER_THICK);
   changes.x = minX - (widX / 2);
   changes.y = minY - (widY / 2);
   XConfigureWindow(_disp, w, (CWX | CWY | CWWidth | CWHeight), &changes);
+
+  XSetWindowBorderWidth(_disp, w, border ? BORDER_THICK : 0);
 }
 
 void Manager::onKeySnapGrid(const XKeyEvent& e)

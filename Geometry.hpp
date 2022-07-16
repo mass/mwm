@@ -27,6 +27,7 @@ struct Point
   double getDist(const Point& o) const;
   int    getDist(const Point& o, DIR dir) const;
   Point  operator+(const Point& o) const;
+  bool   operator==(const Point& o) const;
 };
 
 struct Rect
@@ -42,6 +43,7 @@ struct Rect
   bool  contains(const Point& a) const;
   Point getCenter() const;
   Rect  operator+(const Point& o) const;
+  bool  operator==(const Rect& o) const;
 };
 
 /// Point //////////////////////////////////////////////////////////////////////
@@ -83,6 +85,11 @@ inline Point Point::operator+(const Point& o) const
   return Point(x + o.x, y + o.y);
 }
 
+inline bool Point::operator==(const Point& o) const
+{
+  return x == o.x && y == o.y;
+}
+
 /// Rect ///////////////////////////////////////////////////////////////////////
 
 inline bool Rect::contains(const Point& a) const
@@ -106,6 +113,11 @@ inline Rect Rect::operator+(const Point& a) const
 {
   Point no = o + a;
   return Rect(no.x, no.y, w, h);
+}
+
+inline bool Rect::operator==(const Rect& b) const
+{
+  return o == b.o && w == b.w && h == b.h;
 }
 
 /// Misc ///////////////////////////////////////////////////////////////////////
