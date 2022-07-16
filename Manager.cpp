@@ -166,6 +166,8 @@ bool Manager::init()
                         << " xPos=" << rect.o.x
                         << " yPos=" << rect.o.y;
               _monitors.emplace_back(Monitor{it->second, rect, root, _argScreens.at(i), std::nullopt, 0, 1, 1});
+              if (not _argUseDdc)
+                _monitors.back().setVisible(true);
             }
           }
           XRRFreeOutputInfo(output);
@@ -200,10 +202,6 @@ bool Manager::init()
     LOG(ERROR) << "did not detect all configured monitors";
     return false;
   }
-
-  if (not _argUseDdc)
-    for (auto& mon : _monitors)
-      mon.setVisible(true);
 
   return true;
 }
@@ -602,7 +600,7 @@ void Manager::onBtnPress(const XButtonEvent& e)
   if (_gridActive)
     return;
 
-  // Alt-click
+  // Numlock click (mouse move / resive)
   if (e.state & NUMLOCK) {
     switchFocus(e.window);
 
