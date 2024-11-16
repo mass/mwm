@@ -22,8 +22,6 @@
 #define GRID_COLOR 0x005F87
 #define GRID_BG    0x181818
 
-static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Notes
 ///
@@ -49,10 +47,6 @@ static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
 /// Numlock + P   | Lock the screen
 /// Numlock + A   | Open application menu launcher
 /// Numlock + O   | Open screenshot program
-/// Numlock + 1   | Switch monitor 1 input
-/// Numlock + 2   | Switch monitor 1 input
-/// Numlock + 3   | Switch monitor 2 input
-/// Numlock + 4   | Switch monitor 2 input
 /// Numlock + Q   | Volume up
 /// Numlock + W   | Volume down
 /// Numlock + E   | Volume toggle mute
@@ -65,13 +59,11 @@ static constexpr int64_t DDC_POLL_INTERVAL = 60e9;
 Manager::Manager(const std::string& display,
                  const std::map<int,Point>& screens,
                  const std::string& screenshotDir,
-                 const std::map<std::string,MonitorCfg>& monitorCfg,
-                 const bool useDdc)
+                 const std::map<std::string,MonitorCfg>& monitorCfg)
   : _argDisp(display)
   , _argScreens(screens)
   , _argScreenshotDir(screenshotDir)
   , _argMonitorCfg(monitorCfg)
-  , _argUseDdc(useDdc)
 {}
 
 Manager::~Manager()
@@ -85,14 +77,6 @@ Manager::~Manager()
 bool Manager::init()
 {
   system("pactl upload-sample /usr/share/sounds/freedesktop/stereo/bell.oga bell.oga");
-
-  if (_argUseDdc) {
-    std::vector<DDCDisplayId> expectedMonitors;
-    for (const auto& [_,mon] : _argMonitorCfg)
-      expectedMonitors.push_back(mon.id);
-    if (!_ddc.init(expectedMonitors))
-      return false;
-  }
 
   XSetErrorHandler(&XError);
 
@@ -165,9 +149,7 @@ bool Manager::init()
                         << " height=" << rect.h
                         << " xPos=" << rect.o.x
                         << " yPos=" << rect.o.y;
-              _monitors.emplace_back(Monitor{it->second, rect, root, _argScreens.at(i), std::nullopt, 0, 1, 1});
-              if (not _argUseDdc)
-                _monitors.back().setVisible(true);
+              _monitors.emplace_back(Monitor{it->second, rect, root, _argScreens.at(i), 0, 1, 1});
             }
           }
           XRRFreeOutputInfo(output);
@@ -245,7 +227,7 @@ void Manager::addClient(Window w, bool checkIgn)
   // Grab keys with NUMLOCK modifier
   static const std::set<int> KEYS = {
     XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O,
-    XK_1, XK_2, XK_3, XK_4, XK_Q, XK_W, XK_E
+    XK_Q, XK_W, XK_E
   };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
   for (int key : KEYS)
@@ -269,7 +251,6 @@ void Manager::addClient(Window w, bool checkIgn)
   // Check to make sure we dont place a new client somewhere off the visible screens
   if (std::find_if(begin(_monitors), end(_monitors), [&] (const auto& m) {
         return m.root == c.root &&
-               m.isVisible() &&
                m.r.contains(Point(attrs.x, attrs.y));
       }) == end(_monitors))
   {
@@ -277,7 +258,7 @@ void Manager::addClient(Window w, bool checkIgn)
 
     std::vector<std::pair<Rect, Monitor*>> monitors;
     for (auto& m : _monitors)
-      if (c.root == m.root && m.isVisible())
+      if (c.root == m.root)
         monitors.emplace_back(m.r, &m);
     auto* mon = closestRectFromPoint(Point(attrs.x, attrs.y), monitors);
     if (mon) {
@@ -315,10 +296,6 @@ void Manager::run()
   // Main event loop
   for (;;) {
     ::poll(&pfd, 1, 10); // Sleep until there are events or until the timeout
-    const int64_t now = m::now();
-
-    if (_argUseDdc && now - _lastDdcPoll > DDC_POLL_INTERVAL)
-      pollDdc(now);
 
     while (XPending(_disp)) {
       XEvent e;
@@ -577,11 +554,6 @@ void Manager::onKeyPress(const XKeyEvent& e)
     onKeyLauncher(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_O))
     onKeyScreenshot(e);
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_1) ||
-           e.keycode == XKeysymToKeycode(_disp, XK_2) ||
-           e.keycode == XKeysymToKeycode(_disp, XK_3) ||
-           e.keycode == XKeysymToKeycode(_disp, XK_4))
-    onKeyMonitorInput(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_Q)) {
     system("pactl set-sink-volume @DEFAULT_SINK@ +1000");
     system("pactl set-sink-mute @DEFAULT_SINK@ 0");
@@ -1168,37 +1140,6 @@ void Manager::onKeyMoveGridSize(const XKeyEvent& e)
   snapGrid(e.window, loc);
 }
 
-void Manager::onKeyMonitorInput(const XKeyEvent& e)
-{
-  if (not _argUseDdc)
-    return;
-
-  const DDCDisplayId* id;
-  uint8_t source;
-  if (e.keycode == XKeysymToKeycode(_disp, XK_1)) {
-    id = &(_argMonitorCfg.at("Left").id);
-    source = 0x1b;
-  } else if (e.keycode == XKeysymToKeycode(_disp, XK_2)) {
-    id = &(_argMonitorCfg.at("Left").id);
-    source = 0x0f;
-  } else if (e.keycode == XKeysymToKeycode(_disp, XK_3)) {
-    id = &(_argMonitorCfg.at("Main").id);
-    source = 0x11;
-  }  else if (e.keycode == XKeysymToKeycode(_disp, XK_4)) {
-    id = &(_argMonitorCfg.at("Main").id);
-    source = 0x0f;
-  } else
-    return;
-
-  auto it = std::find_if(begin(_monitors), end(_monitors),
-                         [&] (const auto& m) { return m.cfg.id == *id; });
-  if (it == _monitors.end())
-    return;
-
-  _ddc.setSource(*id, source);
-  pollDdc(m::now());
-}
-
 /// Utils //////////////////////////////////////////////////////////////////////
 
 void Manager::drawGrid(Monitor* mon, bool active)
@@ -1240,30 +1181,4 @@ Window Manager::getNextWindowInDir(DIR dir, Window w)
 
   auto closest = getNextPointInDir(dir, c, windows);
   return closest ? closest : w;
-}
-
-void Monitor::setVisible(std::optional<bool> v)
-{
-  if (this->visible != v)
-    LOG(INFO) << "updated monitor visibility name=(" << this->cfg.name << ")"
-              << " visible=(" << (v.has_value() ? (v.value() ? "true" : "false") : "unknown") << ")";
-  this->visible = v;
-}
-
-void Manager::pollDdc(int64_t now)
-{
-  if (_ddc.poll()) {
-    _lastDdcPoll = now;
-    for (auto& mon : _monitors) {
-      auto source = _ddc.getSource(mon.cfg.id);
-      if (source.has_value())
-        mon.setVisible(source.value() == mon.cfg.visibleInput);
-      else
-        mon.setVisible(std::nullopt);
-    }
-  } else {
-    _lastDdcPoll = now - int64_t(DDC_POLL_INTERVAL * 0.9); // Retry soon
-    for (auto& mon : _monitors)
-      mon.setVisible(std::nullopt);
-  }
 }

@@ -1,20 +1,18 @@
 #pragma once
 
-#include "DisplayDataChannel.hpp"
 #include "Geometry.hpp"
 
 #include <X11/Xlib.h>
 
 #include <map>
 #include <vector>
+#include <cstdint>
 
 struct MonitorCfg
 {
   std::string name;
   int screen;
   std::string connector;
-  uint8_t visibleInput;
-  DDCDisplayId id;
 };
 
 struct Monitor
@@ -23,14 +21,10 @@ struct Monitor
   Rect r;
   Window root;
   Point absOrigin;
-  std::optional<bool> visible;
 
   Window gridDraw;
   unsigned gridX;
   unsigned gridY;
-
-  inline bool isVisible() const { return visible.has_value() && visible.value(); }
-  void setVisible(std::optional<bool> visible);
 };
 
 struct Root
@@ -68,8 +62,7 @@ class Manager
     Manager(const std::string& display,
             const std::map<int,Point>& screens,
             const std::string& screenshotDir,
-            const std::map<std::string,MonitorCfg>& monitorCfg,
-            const bool useDdc);
+            const std::map<std::string,MonitorCfg>& monitorCfg);
     ~Manager();
 
     bool init();
@@ -97,7 +90,6 @@ class Manager
     void onKeyClose(const XKeyEvent& e);
     void onKeyLauncher(const XKeyEvent& e);
     void onKeyScreenshot(const XKeyEvent& e);
-    void onKeyMonitorInput(const XKeyEvent& e);
     void onKeyGrid(const XKeyEvent& e);
     void onKeyGridActive(const XKeyEvent& e);
     void onKeySnapGrid(const XKeyEvent& e);
@@ -105,7 +97,6 @@ class Manager
     void onKeyMoveGridSize(const XKeyEvent& e);
 
     // Misc
-    void pollDdc(int64_t now);
     void addClient(Window w, bool checkIgn);
     void switchFocus(Window w);
     void snapGrid(Window w, Rect r);
@@ -116,15 +107,11 @@ class Manager
     const std::map<int,Point>& _argScreens;
     const std::string& _argScreenshotDir;
     const std::map<std::string,MonitorCfg>& _argMonitorCfg;
-    const bool _argUseDdc;
 
     Display* _disp = nullptr;
     std::map<Window, Client> _clients;
     std::map<Window, Root> _roots;
     std::vector<Monitor> _monitors;
-
-    DisplayDataChannel _ddc;
-    int64_t _lastDdcPoll = 0;
 
     Drag _drag = {};
     uint64_t _lastConfigureSerial = 0;

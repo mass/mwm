@@ -9,17 +9,15 @@ int main(int argc, char* argv[])
     {"display", required_argument, NULL, 'd'},
     {"screen", required_argument, NULL, 's'},
     {"screenshot-dir", required_argument, NULL, 'S'},
-    {"use-ddc", no_argument, NULL, 'D'},
     {NULL, 0, NULL, 0}
   };
 
   std::string display;
   std::map<int,Point> screens;
   std::string screenshotDir = "${HOME}";
-  bool useDdc = false;
 
   int ch;
-  while ((ch = getopt_long(argc, argv, "d:s:S:D", long_options, NULL)) != -1) {
+  while ((ch = getopt_long(argc, argv, "d:s:S:", long_options, NULL)) != -1) {
     switch (ch) {
       case 'd':
         display = optarg;
@@ -35,9 +33,6 @@ int main(int argc, char* argv[])
       case 'S':
         screenshotDir = optarg;
         break;
-      case 'D':
-        useDdc = true;
-        break;
     }
   }
 
@@ -45,7 +40,7 @@ int main(int argc, char* argv[])
 
   LOG(INFO) << "starting mwm";
 
-  Manager m(display, screens, screenshotDir, monitorCfg, useDdc);
+  Manager m(display, screens, screenshotDir, monitorCfg);
   if (!m.init())
     return EXIT_FAILURE;
   m.run();
