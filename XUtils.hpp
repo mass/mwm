@@ -1,6 +1,6 @@
 #pragma once
 
-#include <m/log.hpp>
+#include <u/log.hpp>
 
 #include <X11/cursorfont.h>
 #include <X11/XF86keysym.h>

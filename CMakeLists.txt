@@ -10,9 +10,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wconversion -g -g
 
 # Locate libraries
 FIND_PACKAGE(X11 REQUIRED)
-set(M_INCLUDE_DIR "vendor/m/include")
+set(U_INCLUDE_DIR "vendor/u/include")
 
-INCLUDE_DIRECTORIES(${X11_INCLUDE_DIR} ${X11_Xrandr_INCLUDE_PATH} ${M_INCLUDE_DIR})
+INCLUDE_DIRECTORIES(${X11_INCLUDE_DIR} ${X11_Xrandr_INCLUDE_PATH} ${U_INCLUDE_DIR})
 
 ADD_EXECUTABLE(mwm mwm.cpp Manager.cpp)
 TARGET_LINK_LIBRARIES(mwm ${X11_LIBRARIES} ${X11_Xrandr_LIB})
