@@ -113,8 +113,6 @@ class Manager
     std::vector<Monitor> _monitors;
 
     Drag _drag = {};
-    uint64_t _lastConfigureSerial = 0;
-    uint64_t _lastMapSerial = 0;
     bool _gridActive = false;
     Window _lastFocus = 0;
 };

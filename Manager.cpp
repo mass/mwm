@@ -85,12 +85,14 @@ bool Manager::init()
     return false;
   }
 
-  auto numScreens = ScreenCount(_disp);
+  const int numScreens = ScreenCount(_disp);
   LOG(INFO) << "display=" << DisplayString(_disp) << " screens=" << numScreens;
 
   for (int i = 0; i < numScreens; ++i) {
-    if (_argScreens.find(i) == _argScreens.end())
+    if (_argScreens.find(i) == _argScreens.end()) {
+      LOG(INFO) << "ignoring non-configured screen=" << i;
       continue;
+    }
 
     auto root = RootWindow(_disp, i);
     LOG(INFO) << "screen=" << DisplayString(_disp) << "." << i << " root=" << root
@@ -360,14 +362,7 @@ void Manager::onReq_Map(const XMapRequestEvent& e)
 {
   LOG(INFO) << "request=Map window=" << e.window;
 
-  if (e.serial <= _lastMapSerial) {
-    LOG(WARN) << "ignoring repeated map request window=" << e.window;
-    return;
-  }
-
   addClient(e.window, false);
-
-  _lastMapSerial = e.serial;
 }
 
 void Manager::onNot_Unmap(const XUnmapEvent& e)
@@ -384,11 +379,6 @@ void Manager::onNot_Unmap(const XUnmapEvent& e)
 void Manager::onReq_Configure(const XConfigureRequestEvent& e)
 {
   LOG(INFO) << "request=Configure window=" << e.window;
-
-  if (e.serial <= _lastConfigureSerial) {
-    LOG(WARN) << "ignoring repeated configure request window=" << e.window;
-    return;
-  }
 
   XWindowChanges changes;
   bzero(&changes, sizeof(changes));
@@ -424,8 +414,6 @@ void Manager::onReq_Configure(const XConfigureRequestEvent& e)
         [&] (const auto& m) { return m.root == root && m.r == rect; });
     XSetWindowBorderWidth(_disp, e.window, border ? BORDER_THICK : 0);
   }
-
-  _lastConfigureSerial = e.serial;
 }
 
 void Manager::onNot_Motion(const XButtonEvent& e)
