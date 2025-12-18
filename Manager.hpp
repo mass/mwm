@@ -81,7 +81,6 @@ class Manager
     void onClientMessage(const XClientMessageEvent& e);
 
     // Keypress handlers
-    void onKeyWinExplorer(const XKeyEvent& e);
     void onKeyTerminal(const XKeyEvent& e);
     void onKeyMoveMonitor(const XKeyEvent& e);
     void onKeyMoveFocus(const XKeyEvent& e);

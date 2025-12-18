@@ -43,7 +43,6 @@
 /// Numlock + N   | Restore/unmaximize the current window
 /// Numlock + G   | Open grid building mode
 /// Numlock + S   | Snap current window to closest grid location / size
-/// Numlock + Tab | TODO: Window explorer mode
 /// Numlock + P   | Lock the screen
 /// Numlock + A   | Open application menu launcher
 /// Numlock + O   | Open screenshot program
@@ -226,7 +225,7 @@ void Manager::addClient(Window w, bool checkIgn)
 
   // Grab keys with NUMLOCK modifier
   static const std::set<int> KEYS = {
-    XK_Tab, XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O,
+    XK_D, XK_T, XK_M, XK_N, XK_G, XK_S, XK_P, XK_A, XK_O,
     XK_Q, XK_W, XK_E
   };
   static const std::set<int> MOV_KEYS = { XK_H, XK_J, XK_K, XK_L };
@@ -521,9 +520,7 @@ void Manager::onKeyPress(const XKeyEvent& e)
     return;
   }
 
-  if (e.keycode == XKeysymToKeycode(_disp, XK_Tab))
-    onKeyWinExplorer(e);
-  else if (e.keycode == XKeysymToKeycode(_disp, XK_T))
+  if (e.keycode == XKeysymToKeycode(_disp, XK_T))
     onKeyTerminal(e);
   else if (e.keycode == XKeysymToKeycode(_disp, XK_G))
     onKeyGrid(e);
@@ -630,6 +627,7 @@ void Manager::onBtnPress(const XButtonEvent& e)
 }
 
 //TODO: Better handling of different ClientMessage types
+//TODO: FULLSCREEN thing for wfica
 void Manager::onClientMessage(const XClientMessageEvent& e)
 {
   char* str = XGetAtomName(e.display, e.message_type);
@@ -748,13 +746,6 @@ void Manager::onKeyGridActive(const XKeyEvent& e)
   }
 
   LOG(ERROR) << "invalid window keypress in grid build mode keycode=" << e.keycode;
-}
-
-void Manager::onKeyWinExplorer(const XKeyEvent& /*e*/)
-{
-  // Calculate new coordinates for all clients on a monitor
-  // Save old position of each client and move them to new coordinates
-  // On click on a client, send all *other* clients back to their old position
 }
 
 void Manager::onKeyTerminal(const XKeyEvent& e)
