@@ -5,7 +5,6 @@
 #include <u/log.hpp>
 
 #include <algorithm>
-#include <poll.h>
 #include <set>
 #include <string.h>
 
@@ -290,68 +289,66 @@ void Manager::addClient(Window w, bool checkIgn)
 
 void Manager::run()
 {
-  struct pollfd pfd;
-  pfd.fd = ConnectionNumber(_disp);
-  pfd.events = POLLIN;
-
   // Main event loop
   for (;;) {
-    ::poll(&pfd, 1, 10); // Sleep until there are events or until the timeout
+    XEvent e;
+    ::bzero(&e, sizeof(e));
+    XNextEvent(_disp, &e); // Blocks until the next event
 
-    while (XPending(_disp)) {
-      XEvent e;
-      XNextEvent(_disp, &e);
-      //LOG(INFO) << "type=" << XEventToString(e) << " serial=" << e.xany.serial << " pending=" << XPending(_disp);
+    LOG(INFO) << "new X event"
+      << " serial=" << e.xany.serial
+      << " send_event=" << e.xany.send_event
+      << " window=" << e.xany.window
+      << " type=" << XEventToString(e);
 
-      switch (e.type) {
-        // Ignore these events
-        case ReparentNotify:
-        case MapNotify:
-        case MappingNotify:
-        case ConfigureNotify:
-        case CreateNotify:
-        case DestroyNotify:
-        case KeyRelease:
-          break;
+    switch (e.type) {
+      // Ignore these events
+      case ReparentNotify:
+      case MapNotify:
+      case MappingNotify:
+      case ConfigureNotify:
+      case CreateNotify:
+      case DestroyNotify:
+      case KeyRelease:
+        break;
 
-        case MapRequest:
-          onReq_Map(e.xmaprequest);
-          break;
-        case UnmapNotify:
-          onNot_Unmap(e.xunmap);
-          break;
-        case ConfigureRequest:
-          onReq_Configure(e.xconfigurerequest);
-          break;
+      case MapRequest:
+        onReq_Map(e.xmaprequest);
+        break;
+      case UnmapNotify:
+        onNot_Unmap(e.xunmap);
+        break;
+      case ConfigureRequest:
+        onReq_Configure(e.xconfigurerequest);
+        break;
 
-        case MotionNotify:
-          while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
-          onNot_Motion(e.xbutton);
-          break;
+      case MotionNotify:
+        //TODO: while (XCheckTypedWindowEvent(_disp, e.xmotion.window, MotionNotify, &e)); // Get latest
+        onNot_Motion(e.xbutton);
+        break;
 
-        case FocusIn:
-          handleFocusChange(e.xfocus, true);
-          break;
-        case FocusOut:
-          handleFocusChange(e.xfocus, false);
-          break;
+      case FocusIn:
+        handleFocusChange(e.xfocus, true);
+        break;
+      case FocusOut:
+        handleFocusChange(e.xfocus, false);
+        break;
 
-        case KeyPress:
-          onKeyPress(e.xkey);
-          break;
-        case ButtonPress:
-          onBtnPress(e.xbutton);
-          break;
+      case KeyPress:
+        onKeyPress(e.xkey);
+        break;
+      case ButtonPress:
+        onBtnPress(e.xbutton);
+        break;
 
-        case ClientMessage:
-          onClientMessage(e.xclient);
-          break;
+      case ClientMessage:
+        onClientMessage(e.xclient);
+        break;
 
-        default:
-          LOG(ERROR) << "XEvent not yet handled type=" << e.type
-                     << " event=(" << XEventToString(e) << ")";
-          break;
-      }
+      default:
+        LOG(ERROR) << "XEvent not yet handled type=" << e.type
+                   << " event=(" << XEventToString(e) << ")";
+        break;
     }
   }
 }
